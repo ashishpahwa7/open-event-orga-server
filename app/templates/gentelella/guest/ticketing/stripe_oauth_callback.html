@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Processing</title>
+    <title>{{ _("Processing") }}</title>
     <script type="text/javascript">
         window.oauth_response = {
             'stripe_user_id': '{{ response.stripe_user_id }}',
@@ -14,10 +14,10 @@
         };
         setTimeout(function () {
             window.close();
-        }, 500)
+        }, 500);
     </script>
 </head>
 <body>
-Processing ...
+{{ _("Processing") }} ...
 </body>
 </html>

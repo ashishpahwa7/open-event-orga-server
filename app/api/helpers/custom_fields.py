@@ -3,7 +3,7 @@ import colour
 from datetime import datetime
 from flask import request
 from flask.ext.restplus.fields import Raw, Nested, List
-
+from app.helpers.data_getter import DataGetter
 
 EMAIL_REGEX = re.compile(r'\S+@\S+\.\S+')
 URI_REGEX = re.compile(r'(http|https|ftp)://\S*(\S+\.|localhost(\:\d+)?/)\S+')
@@ -27,12 +27,6 @@ class CustomField(Raw):
         format the text in database for output
         works only for GET requests
         """
-        if not self.validate(value):
-            print 'Validation of field with value \"%s\" (%s) failed' % (
-                value, str(self.__class__.__name__))
-            # raise MarshallingError
-            # disabling for development purposes as the server crashes when
-            # exception is raised. can be enabled when the project is mature
         if self.__schema_type__ == 'string':
             return unicode(value)
         else:
@@ -138,18 +132,18 @@ class DateTime(CustomField):
     Custom DateTime field
     """
     __schema_format__ = 'date-time'
-    __schema_example__ = '2016-06-06T11:22:33'
+    __schema_example__ = '2016-06-06T11:22:33+05:30'
     dt_format = '%Y-%m-%dT%H:%M:%S'
 
     def to_str(self, value):
         return None if not value \
-            else unicode(value.strftime(self.dt_format))
+            else unicode(value.isoformat())
 
     def from_str(self, value):
         if not value:
             return None
         value = value.replace(' ', 'T', 1)
-        return datetime.strptime(value, self.dt_format)
+        return datetime.strptime(value[:19], self.dt_format)
 
     def format(self, value):
         return self.to_str(value)
@@ -252,3 +246,30 @@ class ChoiceString(String):
             self.validation_error = 'Value of %s is not in available choices'
             return False
         return True
+
+
+class Licence(Raw):
+    """
+    Custom field that gets the licence details given the licence name
+    """
+    __schema_example__ = {
+        'name': 'Licence name',
+        'long_name': 'Long licence name',
+        'description': 'Description about the licence',
+        'licence_url': 'http://example.com',
+        'licence_logo': 'http://example.com/example.jpg',
+        'licence_compact_logo': 'http://example.com/example.jpg'
+    }
+
+    def format(self, value):
+        return DataGetter.get_licence_details(value)
+
+
+class PlaceHolder(CustomField):
+    """
+    Background Image PlaceHolder field for Events
+    """
+    __schema_example__ = 'http://url.com/img.ext'
+
+    def format(self, value):
+        return DataGetter.get_placeholder_url_by_event(value)

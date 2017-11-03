@@ -1,18 +1,21 @@
 import json
 import os
 import shutil
-import requests
 from collections import OrderedDict
 from datetime import datetime
+
+import requests
+from flask import current_app as app
 from flask import request, g, url_for
 from flask_restplus import marshal
 
-from app.models.export_jobs import ExportJob
-from app.models.event import Event as EventModel
 from app.helpers.data import save_to_db
 from app.helpers.data_getter import DataGetter
 from app.helpers.helpers import send_email_after_export, send_notif_after_export
-
+from app.models.event import Event as EventModel
+from app.models.export_jobs import ExportJob
+from import_helpers import is_downloadable, get_filename_from_cd
+from .non_apis import CustomFormDAO, CUSTOM_FORM
 from ..events import DAO as EventDAO, EVENT as EVENT_MODEL
 from ..microlocations import DAO as MicrolocationDAO, MICROLOCATION
 from ..sessions import DAO as SessionDAO, SESSION, \
@@ -20,15 +23,12 @@ from ..sessions import DAO as SessionDAO, SESSION, \
 from ..speakers import DAO as SpeakerDAO, SPEAKER
 from ..sponsors import DAO as SponsorDAO, SPONSOR
 from ..tracks import DAO as TrackDAO, TRACK
-from .non_apis import CustomFormDAO, CUSTOM_FORM
-from import_helpers import is_downloadable, get_filename_from_cd
-
+from app.helpers.storage import upload, UPLOAD_PATHS, UploadedFile
+from app.settings import get_settings
 
 # DELETE FIELDS
 # All fields to be deleted go here
 EVENT = EVENT_MODEL.clone('EventExport')
-del EVENT['creator'].model['id']
-
 
 EXPORTS = [
     ('event', EventDAO, EVENT),
@@ -59,7 +59,7 @@ FIELD_ORDER = {
         'short_biography', 'long_biography', 'website', 'twitter', 'facebook', 'github', 'linkedin'
     ],
     'sponsors': ['id', 'name', 'logo', 'level', 'sponsor_type', 'url', 'description'],
-    'tracks': ['id', 'name', 'color'],
+    'tracks': ['id', 'name', 'color', 'font_color'],
     'session_types': ['id', 'name', 'length'],
     'forms': []
 }
@@ -136,9 +136,9 @@ def _download_media(data, srv, dir_path, settings):
             continue
         path = DOWNLOAD_FIEDLS[srv][i][1]
         if srv == 'speakers':
-            path = path % (make_filename(data['name']), data['id'])
+            path %= make_filename(data['name']), data['id']
         elif srv == 'sponsors':
-            path = path % (make_filename(data['name']), data['id'])
+            path %= make_filename(data['name']), data['id']
         elif srv != 'event':
             path = path % (data['id'])
         if data[i].find('.') > -1:  # add extension
@@ -169,8 +169,7 @@ def _generate_meta():
     """
     Generate Meta information for export
     """
-    d = {}
-    d['root_url'] = request.url_root
+    d = {'root_url': request.url_root}
     return d
 
 
@@ -179,7 +178,10 @@ def export_event_json(event_id, settings):
     Exports the event as a zip on the server and return its path
     """
     # make directory
-    dir_path = 'static/exports/event%d' % event_id
+    exports_dir = app.config['BASE_DIR'] + '/static/uploads/exports/'
+    if not os.path.isdir(exports_dir):
+        os.mkdir(exports_dir)
+    dir_path = exports_dir + 'event%d' % event_id
     if os.path.isdir(dir_path):
         shutil.rmtree(dir_path, ignore_errors=True)
     os.mkdir(dir_path)
@@ -207,7 +209,17 @@ def export_event_json(event_id, settings):
     fp.close()
     # make zip
     shutil.make_archive(dir_path, 'zip', dir_path)
-    return os.path.realpath('.') + '/' + dir_path + '.zip'
+    dir_path = dir_path + ".zip"
+
+    storage_path = UPLOAD_PATHS['exports']['zip'].format(
+        event_id=event_id
+    )
+    uploaded_file = UploadedFile(dir_path, dir_path.rsplit('/', 1)[1])
+    storage_url = upload(uploaded_file, storage_path)
+
+    if get_settings()['storage_place'] != "s3" and get_settings()['storage_place'] != 'gs':
+        storage_url = app.config['BASE_DIR'] + storage_url.replace("/serve_", "/")
+    return storage_url
 
 
 # HELPERS
@@ -249,7 +261,6 @@ def send_export_mail(event_id, result):
 
 
 # FIELD DATA FORMATTERS
-
 def make_filename(name):
     """Make speaker image filename for export"""
     for _ in FILENAME_EXCLUDE:

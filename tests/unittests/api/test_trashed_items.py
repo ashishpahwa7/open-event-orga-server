@@ -1,14 +1,15 @@
 import unittest
+from datetime import datetime
 
-from tests.unittests.setup_database import Setup
-from tests.unittests.utils import OpenEventTestCase
+from app import current_app as app
 from app.helpers.data import save_to_db
+from app.helpers.data import update_role_to_admin
 from app.models.user import User
-from tests.unittests.auth_helper import register
 from tests.unittests.api.utils import get_path, create_event, create_services, \
     Event, Session
-from app import current_app as app
-from app.helpers.data import update_role_to_admin
+from tests.unittests.auth_helper import register
+from tests.unittests.setup_database import Setup
+from tests.unittests.utils import OpenEventTestCase
 
 
 class TestTrashedItems404(OpenEventTestCase):
@@ -29,7 +30,7 @@ class TestTrashedItems404(OpenEventTestCase):
         if name == 'event':
             path = get_path(1)
         elif name == 'user':
-            path = '/api/v2/users/1'
+            path = '/api/v1/users/1'
         else:
             path = get_path(1, name + 's', 1)
         # check if exists
@@ -38,7 +39,7 @@ class TestTrashedItems404(OpenEventTestCase):
         # delete virtually
         with app.test_request_context():
             item = model.query.get(1)
-            item.in_trash = True
+            item.deleted_at = datetime.now()
             save_to_db(item)
         # get item
         resp = self.app.get(path)

@@ -1,36 +1,30 @@
-from flask.ext.restplus import Namespace, reqparse, marshal
 from flask import g
+from flask.ext.restplus import Namespace, reqparse, marshal
 
+from app.api.attendees import TICKET
 from app.api.microlocations import MICROLOCATION
 from app.api.sessions import SESSION
 from app.api.speakers import SPEAKER
 from app.api.sponsors import SPONSOR
-from app.api.ticketing import TICKET
 from app.api.tracks import TRACK
-from app.models.event import Event as EventModel
-from app.models.social_link import SocialLink as SocialLinkModel
-from app.models.users_events_roles import UsersEventsRoles
-from app.models.event_copyright import EventCopyright
-from app.models.call_for_papers import CallForPaper as EventCFS
-from app.models.role import Role
-from app.models.user import ORGANIZER
 from app.helpers.data import save_to_db, record_activity
-
-from .helpers.helpers import requires_auth, parse_args, \
-    can_access, fake_marshal_with, fake_marshal_list_with, erase_from_dict
-from .helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, \
-    PAGE_PARAMS, POST_RESPONSES, PUT_RESPONSES, BaseDAO, ServiceDAO
-from .helpers.utils import Resource, ETAG_HEADER_DEFN
-from .helpers import custom_fields as fields
+from app.models.call_for_papers import CallForPaper as EventCFS
+from app.models.event import Event as EventModel
+from app.models.event_copyright import EventCopyright
+from app.models.role import Role
+from app.models.social_link import SocialLink as SocialLinkModel
+from app.models.user import ORGANIZER
+from app.models.users_events_roles import UsersEventsRoles
 from helpers.special_fields import EventTypeField, EventTopicField, \
     EventPrivacyField, EventSubTopicField, EventStateField
+from app.api.helpers import custom_fields as fields
+from app.api.helpers.helpers import requires_auth, parse_args, \
+    can_access, fake_marshal_with, fake_marshal_list_with, erase_from_dict, replace_event_id
+from app.api.helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, \
+    PAGE_PARAMS, POST_RESPONSES, PUT_RESPONSES, BaseDAO, ServiceDAO
+from app.api.helpers.utils import Resource, ETAG_HEADER_DEFN
 
 api = Namespace('events', description='Events')
-
-EVENT_CREATOR = api.model('EventCreator', {
-    'id': fields.Integer(),
-    'email': fields.Email()
-})
 
 EVENT_COPYRIGHT = api.model('EventCopyright', {
     'holder': fields.String(),
@@ -43,8 +37,8 @@ EVENT_COPYRIGHT = api.model('EventCopyright', {
 
 EVENT_CFS = api.model('EventCFS', {
     'announcement': fields.String(),
-    'start_date': fields.DateTime(),
-    'end_date': fields.DateTime(),
+    'start_date': fields.DateTime(attribute='start_date_tz'),
+    'end_date': fields.DateTime(attribute='end_date_tz'),
     'timezone': fields.String(),
     'privacy': EventPrivacyField()  # [public, private]
 })
@@ -64,6 +58,7 @@ SOCIAL_LINK = api.model('SocialLink', {
     'link': fields.String(required=True)
 })
 
+
 SOCIAL_LINK_POST = api.clone('SocialLinkPost', SOCIAL_LINK)
 del SOCIAL_LINK_POST['id']
 
@@ -74,12 +69,13 @@ EVENT = api.model('Event', {
     'event_url': fields.Uri(),
     'email': fields.Email(),
     'logo': fields.Upload(),
-    'start_time': fields.DateTime(required=True),
-    'end_time': fields.DateTime(required=True),
+    'start_time': fields.DateTime(attribute='start_time_tz', required=True),
+    'end_time': fields.DateTime(attribute='end_time_tz', required=True),
     'timezone': fields.String(),
     'latitude': fields.Float(),
     'longitude': fields.Float(),
     'background_image': fields.Upload(attribute='background_url'),
+    'placeholder_url': fields.PlaceHolder(attribute=lambda event: event),
     'description': fields.String(),
     'location_name': fields.String(),
     'searchable_location_name': fields.String(),
@@ -91,14 +87,16 @@ EVENT = api.model('Event', {
     'sub_topic': EventSubTopicField(),
     'privacy': EventPrivacyField(),
     'ticket_url': fields.Uri(),
-    'creator': fields.Nested(EVENT_CREATOR, allow_null=True),
     'copyright': fields.Nested(EVENT_COPYRIGHT, allow_null=True),
-    'schedule_published_on': fields.DateTime(),
+    'licence_details': fields.Licence(attribute='copyright.licence', allow_null=True),
+    'schedule_published_on': fields.DateTime(attribute='schedule_published_on_tz'),
     'code_of_conduct': fields.String(),
     'social_links': fields.List(fields.Nested(SOCIAL_LINK), attribute='social_link'),
     'call_for_papers': fields.Nested(EVENT_CFS, allow_null=True),
     'version': fields.Nested(EVENT_VERSION),
-    'has_session_speakers': fields.Boolean(default=False)
+    'has_session_speakers': fields.Boolean(default=False),
+    'thumbnail': fields.Uri(),
+    'large': fields.Uri()
 })
 
 EVENT_COMPLETE = api.clone('EventComplete', EVENT, {
@@ -116,10 +114,11 @@ EVENT_PAGINATED = api.clone('EventPaginated', PAGINATED_MODEL, {
 
 EVENT_POST = api.clone('EventPost', EVENT)
 del EVENT_POST['id']
-del EVENT_POST['creator']
+del EVENT_POST['identifier']
 del EVENT_POST['social_links']
 del EVENT_POST['version']
-
+del EVENT_POST['licence_details']
+del EVENT_POST['placeholder_url']
 
 # ###################
 # Data Access Objects
@@ -144,16 +143,18 @@ class EventDAO(BaseDAO):
         Fixes the payload data.
         Here converts string time from datetime obj
         """
-        datetime_fields = ['start_time', 'end_time', 'schedule_published_on']
+        datetime_fields = ['start_time_tz', 'end_time_tz', 'schedule_published_on_tz']
         for f in datetime_fields:
             if f in data:
-                data[f] = EVENT_POST[f].from_str(data.get(f))
+                data[f] = EVENT_POST[f[0:-3]].from_str(data.get(f))
+                data[f[0:-3]] = data.pop(f)
         # cfs datetimes
         if data.get('call_for_papers'):
-            for _ in ['start_date', 'end_date']:
+            for _ in ['start_date_tz', 'end_date_tz']:
                 if _ in data['call_for_papers']:
-                    data['call_for_papers'][_] = EVENT_CFS[_].from_str(
+                    data['call_for_papers'][_] = EVENT_CFS[_[0:-3]].from_str(
                         data['call_for_papers'].get(_))
+                    data['call_for_papers'][_[0:-3]] = data['call_for_papers'].pop(_)
         return data
 
     def create(self, data, url):
@@ -166,11 +167,10 @@ class EventDAO(BaseDAO):
             payload['call_for_papers'] = CFSDAO.create(payload['call_for_papers'], validate=False)
         # save event
         new_event = self.model(**payload)
-        new_event.creator = g.user
         save_to_db(new_event, "Event saved")
         # set organizer
         role = Role.query.filter_by(name=ORGANIZER).first()
-        uer = UsersEventsRoles(g.user, new_event, role)
+        uer = UsersEventsRoles(user_id=g.user.id, event=new_event, role=role)
         save_to_db(uer, 'UER saved')
         # Return created resource with a 201 status code and its Location
         # (url) in the header.
@@ -185,7 +185,7 @@ class EventDAO(BaseDAO):
         # update copyright if key exists
         if 'copyright' in payload:
             CopyrightDAO.update(event.copyright.id, payload['copyright']
-                                if payload['copyright'] else {})
+            if payload['copyright'] else {})
             payload.pop('copyright')
         # update cfs
         if 'call_for_papers' in payload:
@@ -256,6 +256,7 @@ def get_extended_event_model(includes=None):
         included_fields['tickets'] = fields.List(fields.Nested(TICKET), attribute='tickets')
     return EVENT.extend('ExtendedEvent', included_fields)
 
+
 # DEFINE RESOURCES
 
 
@@ -284,10 +285,11 @@ class SingleEventResource():
     event_parser.add_argument('include', type=str)
 
 
-@api.route('/<int:event_id>')
+@api.route('/<string:event_id>')
 @api.param('event_id')
 @api.response(404, 'Event not found')
 class Event(Resource, SingleEventResource):
+    @replace_event_id
     @api.doc('get_event', params=SINGLE_EVENT_PARAMS)
     @api.header(*ETAG_HEADER_DEFN)
     @fake_marshal_with(EVENT_COMPLETE)  # Fake marshal decorator to add response model to swagger doc
@@ -297,6 +299,7 @@ class Event(Resource, SingleEventResource):
         return marshal(DAO.get(event_id), get_extended_event_model(includes))
 
     @requires_auth
+    @replace_event_id
     @can_access
     @api.doc('delete_event')
     @api.marshal_with(EVENT)
@@ -307,6 +310,7 @@ class Event(Resource, SingleEventResource):
         return event
 
     @requires_auth
+    @replace_event_id
     @can_access
     @api.doc('update_event', responses=PUT_RESPONSES)
     @api.marshal_with(EVENT)
@@ -318,12 +322,13 @@ class Event(Resource, SingleEventResource):
         return event
 
 
-@api.route('/<int:event_id>/event')
+@api.route('/<string:event_id>/event')
 @api.param('event_id')
 @api.response(404, 'Event not found')
 class EventWebapp(Resource, SingleEventResource):
     @api.doc('get_event_for_webapp')
     @api.header(*ETAG_HEADER_DEFN)
+    @replace_event_id
     @fake_marshal_with(EVENT_COMPLETE)  # Fake marshal decorator to add response model to swagger doc
     def get(self, event_id):
         """Fetch an event given its id.
@@ -368,17 +373,19 @@ class EventListPaginated(Resource, PaginatedResourceBase, EventResource):
         return DAO.paginated_list(args=args, **parse_args(self.event_parser))
 
 
-@api.route('/<int:event_id>/links')
+@api.route('/<string:event_id>/links')
 @api.param('event_id')
 class SocialLinkList(Resource):
     @api.doc('list_social_links')
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_list_with(SOCIAL_LINK)
+    @replace_event_id
     def get(self, event_id):
         """List all social links"""
         return LinkDAO.list(event_id)
 
     @requires_auth
+    @replace_event_id
     @can_access
     @api.doc('create_social_link', responses=POST_RESPONSES)
     @api.marshal_with(SOCIAL_LINK)
@@ -392,9 +399,10 @@ class SocialLinkList(Resource):
         )
 
 
-@api.route('/<int:event_id>/links/<int:link_id>')
+@api.route('/<string:event_id>/links/<int:link_id>')
 class SocialLink(Resource):
     @requires_auth
+    @replace_event_id
     @can_access
     @api.doc('delete_social_link')
     @api.marshal_with(SOCIAL_LINK)
@@ -403,6 +411,7 @@ class SocialLink(Resource):
         return LinkDAO.delete(event_id, link_id)
 
     @requires_auth
+    @replace_event_id
     @can_access
     @api.doc('update_social_link', responses=PUT_RESPONSES)
     @api.marshal_with(SOCIAL_LINK)
@@ -414,6 +423,7 @@ class SocialLink(Resource):
     @api.hide
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(SOCIAL_LINK)
+    @replace_event_id
     def get(self, event_id, link_id):
         """Fetch a social link given its id"""
         return LinkDAO.get(event_id, link_id)

@@ -1,6 +1,10 @@
 from app import current_app
 from app.models import db
-from app.helpers.data import get_or_create#, save_to_db
+from app.helpers.data import get_or_create  # , save_to_db
+
+# Admin message settings
+from app.helpers.system_mails import MAILS
+from app.models.message_settings import MessageSettings
 
 # Event Role-Service Permissions
 from app.models.role import Role
@@ -13,12 +17,11 @@ from app.models.speaker import Speaker
 from app.models.sponsor import Sponsor
 from app.models.microlocation import Microlocation
 
-from app.models.user import ORGANIZER, COORGANIZER, TRACK_ORGANIZER, MODERATOR, ATTENDEE
+from app.models.user import ORGANIZER, COORGANIZER, TRACK_ORGANIZER, MODERATOR, ATTENDEE, REGISTRAR
 
 # Admin Panel Permissions
 from app.models.panel_permissions import PanelPermission
 from app.models.system_role import CustomSysRole
-from app.views.admin.super_admin.super_admin_base import SALES
 
 # User Permissions
 from app.models.user_permissions import UserPermission
@@ -30,6 +33,7 @@ def create_roles():
     get_or_create(Role, name=TRACK_ORGANIZER, title_name='Track Organizer')
     get_or_create(Role, name=MODERATOR, title_name='Moderator')
     get_or_create(Role, name=ATTENDEE, title_name='Attendee')
+    get_or_create(Role, name=REGISTRAR, title_name='Registrar')
 
 
 def create_services():
@@ -100,26 +104,52 @@ def create_permissions():
 def create_custom_sys_roles():
     role, _ = get_or_create(CustomSysRole, name='Sales Admin')
     db.session.add(role)
+    role, _ = get_or_create(CustomSysRole, name='Marketer')
+    db.session.add(role)
 
 
 def create_panel_permissions():
-    sales_admin = CustomSysRole.query.get(1)
+    sales_admin = CustomSysRole.query.filter_by(name='Sales Admin').first()
+    from app.views.super_admin import SALES
     perm, _ = get_or_create(PanelPermission, panel_name=SALES, role=sales_admin)
+    db.session.add(perm)
+    marketer = CustomSysRole.query.filter_by(name='Marketer').first()
+    perm, _ = get_or_create(PanelPermission, panel_name=SALES, role=marketer)
     db.session.add(perm)
 
 
 def create_user_permissions():
     # Publish Event
     user_perm, _ = get_or_create(UserPermission, name='publish_event',
-        description='Publish event (make event live)')
+                                 description='Publish event (make event live)')
     user_perm.verified_user = True
     db.session.add(user_perm)
 
     # Create Event
     user_perm, _ = get_or_create(UserPermission, name='create_event',
-        description='Create event')
+                                 description='Create event')
     user_perm.verified_user, user_perm.unverified_user = True, True
     db.session.add(user_perm)
+
+
+def create_admin_message_settings():
+    default_mails = ["Next Event",
+                     "Session Schedule Change",
+                     "User email",
+                     "Invitation For Papers",
+                     "After Event",
+                     "Ticket(s) Purchased",
+                     "Session Accept or Reject",
+                     "Event Published",
+                     "Event Export Failed",
+                     "Event Exported",
+                     "Event Role Invitation",
+                     "New Session Proposal"]
+    for mail in MAILS:
+        if mail in default_mails:
+            get_or_create(MessageSettings, action=mail, mail_status=1, notif_status=1, user_control_status=1)
+        else:
+            get_or_create(MessageSettings, action=mail, mail_status=0, notif_status=0, user_control_status=0)
 
 
 def populate():
@@ -139,6 +169,8 @@ def populate():
     create_panel_permissions()
     print 'Creating user permissions...'
     create_user_permissions()
+    print 'Creating admin message settings...'
+    create_admin_message_settings()
 
     db.session.commit()
 

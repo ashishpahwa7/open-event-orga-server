@@ -1,16 +1,14 @@
 import datetime
 import time
 
-from . import db
+from app.models import db
 
 
 class OrderTicket(db.Model):
     __tablename__ = 'orders_tickets'
-    order_id = db.Column(db.Integer, db.ForeignKey('orders.id'), primary_key=True)
-    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id', ondelete='CASCADE'), primary_key=True)
     quantity = db.Column(db.Integer)
-    ticket = db.relationship('Ticket', backref='order_tickets')
-
 
 class Order(db.Model):
     __tablename__ = "orders"
@@ -23,10 +21,12 @@ class Order(db.Model):
     state = db.Column(db.String)
     country = db.Column(db.String)
     zipcode = db.Column(db.String)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'))
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='SET NULL'))
+    marketer_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'))
     created_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime, nullable=True, default=None)
+    trashed_at = db.Column(db.DateTime, nullable=True, default=None)
     transaction_id = db.Column(db.String)
     paid_via = db.Column(db.String)
     payment_mode = db.Column(db.String)
@@ -37,21 +37,23 @@ class Order(db.Model):
     stripe_token = db.Column(db.String)
     paypal_token = db.Column(db.String)
     status = db.Column(db.String)
+    is_reminder_mail_sent = db.Column(db.Boolean, default=False)
 
     discount_code_id = db.Column(
         db.Integer, db.ForeignKey('discount_codes.id', ondelete='SET NULL'), nullable=True, default=None)
     discount_code = db.relationship('DiscountCode', backref='orders')
 
     event = db.relationship('Event', backref='orders')
-    user = db.relationship('User', backref='orders')
-    tickets = db.relationship("OrderTicket")
+    user = db.relationship('User', backref='orders', foreign_keys=[user_id])
+    marketer = db.relationship('User', backref='marketed_orders', foreign_keys=[marketer_id])
+    tickets = db.relationship("OrderTicket", backref='order')
 
     def __init__(self,
                  identifier=None,
                  quantity=None,
                  amount=None,
                  address=None,
-                 city=city,
+                 city=None,
                  state=None,
                  country=None,
                  zipcode=None,
@@ -59,10 +61,12 @@ class Order(db.Model):
                  paid_via=None,
                  user_id=None,
                  discount_code_id=None,
-                 event_id=None):
+                 event_id=None,
+                 is_reminder_mail_sent=None):
         self.identifier = identifier
         self.quantity = quantity
         self.amount = amount
+        self.city = city
         self.address = address
         self.state = state
         self.country = country
@@ -73,6 +77,7 @@ class Order(db.Model):
         self.paid_via = paid_via
         self.created_at = datetime.datetime.utcnow()
         self.discount_code_id = discount_code_id
+        self.is_reminder_mail_sent = is_reminder_mail_sent
 
     def __repr__(self):
         return '<Order %r>' % self.id
@@ -114,5 +119,5 @@ class Order(db.Model):
             'brand': self.brand,
             'exp_month': self.exp_month,
             'exp_year': self.exp_year,
-            'last4': self.last4,
+            'last4': self.last4
         }

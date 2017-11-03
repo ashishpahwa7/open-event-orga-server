@@ -1,30 +1,28 @@
 from flask.ext.restplus import Namespace, reqparse
 from sqlalchemy.orm.collections import InstrumentedList
 
+from app.helpers.data import record_activity, save_to_db
+from app.helpers.data_getter import DataGetter
 from app.helpers.notification_email_triggers import trigger_new_session_notifications, \
     trigger_session_schedule_change_notifications
 from app.helpers.notification_email_triggers import trigger_session_state_change_notifications
-from app.models.session import Session as SessionModel
-from app.models.track import Track as TrackModel
 from app.models.microlocation import Microlocation as MicrolocationModel
-from app.models.speaker import Speaker as SpeakerModel
+from app.models.session import Session as SessionModel
 from app.models.session_type import SessionType as SessionTypeModel
-from app.helpers.data import record_activity, save_to_db
-from app.helpers.data_getter import DataGetter
-
-from .helpers.helpers import save_db_model, get_object_in_event, \
-    model_custom_form, requires_auth, parse_args
-from .helpers.helpers import (
+from app.models.speaker import Speaker as SpeakerModel
+from app.models.track import Track as TrackModel
+from app.api.helpers import custom_fields as fields
+from app.api.helpers.helpers import (
     can_create,
     can_update,
-    can_delete
-)
-from .helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO,\
+    can_delete,
+    replace_event_id)
+from app.api.helpers.helpers import save_db_model, get_object_in_event, \
+    model_custom_form, requires_auth, parse_args
+from app.api.helpers.special_fields import SessionLanguageField, SessionStateField
+from app.api.helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO, \
     PAGE_PARAMS, POST_RESPONSES, PUT_RESPONSES, SERVICE_RESPONSES
-from .helpers.utils import Resource, ETAG_HEADER_DEFN
-from .helpers import custom_fields as fields
-from .helpers.special_fields import SessionLanguageField, SessionStateField
-
+from app.api.helpers.utils import Resource, ETAG_HEADER_DEFN
 
 api = Namespace('sessions', description='Sessions', path='/')
 
@@ -32,12 +30,26 @@ api = Namespace('sessions', description='Sessions', path='/')
 SESSION_TRACK = api.model('SessionTrack', {
     'id': fields.Integer(required=True),
     'name': fields.String(),
+    'color': fields.Color(),
+    'font_color': fields.Color(),
 })
 
 SESSION_SPEAKER = api.model('SessionSpeaker', {
     'id': fields.Integer(required=True),
     'name': fields.String(),
-    'organisation': fields.String()
+    'organisation': fields.String(),
+    'city': fields.String(),
+    'short_biography': fields.String(),
+    'long_biography': fields.String(),
+    'heard_from': fields.String(),
+    'speaking_experience': fields.String(),
+    'sponsorship_required': fields.String(),
+    'short_biography': fields.String(),
+    'long_biography' : fields.String(),
+    'photo' : fields.String(),
+    'small': fields.Upload(),
+    'thumbnail': fields.Upload(),
+    'icon': fields.Upload(),
 })
 
 SESSION_MICROLOCATION = api.model('SessionMicrolocation', {
@@ -48,7 +60,7 @@ SESSION_MICROLOCATION = api.model('SessionMicrolocation', {
 SESSION_TYPE = api.model('SessionType', {
     'id': fields.Integer(required=True),
     'name': fields.String(required=True),
-    'length': fields.Float(required=True)
+    'length': fields.String(required=True)
 })
 
 SESSION_TYPE_POST = api.clone('SessionTypePost', SESSION_TYPE)
@@ -58,11 +70,12 @@ SESSION = api.model('Session', {
     'id': fields.Integer(required=True),
     'title': fields.String(required=True),
     'subtitle': fields.String(),
+    'level': fields.String(),
     'short_abstract': fields.String(),
     'long_abstract': fields.String(),
     'comments': fields.String(),
-    'start_time': fields.DateTime(required=True),
-    'end_time': fields.DateTime(required=True),
+    'start_time': fields.DateTime(attribute='start_time_tz', required=True),
+    'end_time': fields.DateTime(attribute='end_time_tz', required=True),
     'track': fields.Nested(SESSION_TRACK, allow_null=True),
     'speakers': fields.List(fields.Nested(SESSION_SPEAKER)),
     'language': SessionLanguageField(),
@@ -108,11 +121,12 @@ class SessionDAO(ServiceDAO):
 
     def _delete_fields(self, data):
         data = self._del(data, ['speaker_ids', 'track_id',
-                         'microlocation_id', 'session_type_id'])
+                                'microlocation_id', 'session_type_id'])
         # convert datetime fields
-        for _ in ['start_time', 'end_time']:
+        for _ in ['start_time_tz', 'end_time_tz']:
             if _ in data:
-                data[_] = SESSION_POST[_].from_str(data[_])
+                data[_] = SESSION_POST[_[0:-3]].from_str(data[_])
+                data[_[0:-3]] = data.pop(_)
         return data
 
     def get_object(self, model, sid, event_id):
@@ -158,7 +172,8 @@ class SessionDAO(ServiceDAO):
                 trigger_new_session_notifications(session.id, event_id=event_id)
 
             if (data['state'] == 'accepted' and session.state != 'accepted') \
-                    or (data['state'] == 'rejected' and session.state != 'rejected'):
+                or (data['state'] == 'rejected' and session.state != 'rejected') \
+                or (data['state'] == 'confirmed' and session.state != 'confirmed'):
                 trigger_session_state_change_notifications(obj, event_id=event_id, state=data['state'])
 
         if session.start_time != obj.start_time or session.end_time != obj.end_time:
@@ -206,6 +221,7 @@ SESSIONS_PARAMS = {
     }
 }
 
+
 # #########
 # Resources
 # #########
@@ -223,10 +239,11 @@ class SessionResource():
     session_parser.add_argument('order_by', dest='__sessions_order_by')
 
 
-@api.route('/events/<int:event_id>/sessions/<int:session_id>')
+@api.route('/events/<string:event_id>/sessions/<int:session_id>')
 @api.doc(responses=SERVICE_RESPONSES)
 class Session(Resource):
     @api.doc('get_session')
+    @replace_event_id
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(SESSION)
     def get(self, event_id, session_id):
@@ -234,6 +251,7 @@ class Session(Resource):
         return DAO.get(event_id, session_id)
 
     @requires_auth
+    @replace_event_id
     @can_delete(DAO)
     @api.doc('delete_session')
     @api.marshal_with(SESSION)
@@ -242,6 +260,7 @@ class Session(Resource):
         return DAO.delete(event_id, session_id)
 
     @requires_auth
+    @replace_event_id
     @can_update(DAO)
     @api.doc('update_session', responses=PUT_RESPONSES)
     @api.marshal_with(SESSION)
@@ -251,8 +270,9 @@ class Session(Resource):
         return DAO.update(event_id, session_id, self.api.payload)
 
 
-@api.route('/events/<int:event_id>/sessions')
+@api.route('/events/<string:event_id>/sessions')
 class SessionList(Resource, SessionResource):
+    @replace_event_id
     @api.doc('list_sessions', params=SESSIONS_PARAMS)
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_list_with(SESSION)
@@ -261,6 +281,7 @@ class SessionList(Resource, SessionResource):
         return DAO.list(event_id, **parse_args(self.session_parser))
 
     @requires_auth
+    @replace_event_id
     @can_create(DAO)
     @api.doc('create_session', responses=POST_RESPONSES)
     @api.marshal_with(SESSION)
@@ -276,9 +297,10 @@ class SessionList(Resource, SessionResource):
         return item
 
 
-@api.route('/events/<int:event_id>/sessions/page')
+@api.route('/events/<string:event_id>/sessions/page')
 class SessionListPaginated(Resource, PaginatedResourceBase, SessionResource):
     @api.doc('list_sessions_paginated', params=PAGE_PARAMS)
+    @replace_event_id
     @api.doc(params=SESSIONS_PARAMS)
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(SESSION_PAGINATED)
@@ -292,9 +314,10 @@ class SessionListPaginated(Resource, PaginatedResourceBase, SessionResource):
 
 # Use Session DAO to check for permission
 
-@api.route('/events/<int:event_id>/sessions/types')
+@api.route('/events/<string:event_id>/sessions/types')
 class SessionTypeList(Resource):
     @api.doc('list_session_types')
+    @replace_event_id
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_list_with(SESSION_TYPE)
     def get(self, event_id):
@@ -315,9 +338,10 @@ class SessionTypeList(Resource):
         )
 
 
-@api.route('/events/<int:event_id>/sessions/types/<int:type_id>')
+@api.route('/events/<string:event_id>/sessions/types/<int:type_id>')
 class SessionType(Resource):
     @requires_auth
+    @replace_event_id
     @can_delete(DAO)
     @api.doc('delete_session_type')
     @api.marshal_with(SESSION_TYPE)
@@ -326,6 +350,7 @@ class SessionType(Resource):
         return TypeDAO.delete(event_id, type_id)
 
     @requires_auth
+    @replace_event_id
     @can_update(DAO)
     @api.doc('update_session_type', responses=PUT_RESPONSES)
     @api.marshal_with(SESSION_TYPE)
@@ -335,6 +360,7 @@ class SessionType(Resource):
         return TypeDAO.update(event_id, type_id, self.api.payload)
 
     @api.hide
+    @replace_event_id
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(SESSION_TYPE)
     def get(self, event_id, type_id):

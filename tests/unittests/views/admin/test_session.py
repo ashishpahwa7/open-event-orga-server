@@ -1,17 +1,15 @@
-"""Copyright 2015 Rafal Kowalski"""
 import unittest
 
-from tests.unittests.api.utils_post_data import POST_SESSION_DATA, POST_SPEAKER_DATA
-from tests.unittests.object_mother import ObjectMother
-from app import current_app as app
-from app.helpers.data import save_to_db
 from flask import url_for
 
+from app import current_app as app
+from app.helpers.data import save_to_db
+from tests.unittests.api.utils_post_data import POST_SESSION_DATA, POST_SPEAKER_DATA
+from tests.unittests.object_mother import ObjectMother
 from tests.unittests.views.view_test_case import OpenEventViewTestCase
 
 
 class TestSessionApi(OpenEventViewTestCase):
-
     def test_sessions_list(self):
         with app.test_request_context():
             event = ObjectMother.get_event()
@@ -41,6 +39,7 @@ class TestSessionApi(OpenEventViewTestCase):
             save_to_db(custom_form, "Custom form saved")
             data = POST_SESSION_DATA
             data.update(POST_SPEAKER_DATA)
+            data['photo'] = ''
             url = url_for('event_sessions.create_view', event_id=event.id)
             rv = self.app.post(url, follow_redirects=True, buffered=True, content_type='multipart/form-data', data=data)
             self.assertTrue(data['title'] in rv.data, msg=rv.data)
@@ -78,7 +77,7 @@ class TestSessionApi(OpenEventViewTestCase):
             session = ObjectMother.get_session()
             save_to_db(session, "Session Saved")
             url = url_for('event_sessions.accept_session', event_id=1, session_id=session.id)
-            rv = self.app.get(url, follow_redirects=True)
+            rv = self.app.post(url, follow_redirects=True)
             self.assertTrue("The session has been accepted" in rv.data, msg=rv.data)
 
     def test_session_reject(self):
@@ -88,11 +87,13 @@ class TestSessionApi(OpenEventViewTestCase):
             session = ObjectMother.get_session()
             save_to_db(session, "Session Saved")
             url = url_for('event_sessions.reject_session', event_id=1, session_id=session.id)
-            rv = self.app.get(url, follow_redirects=True)
+            rv = self.app.post(url, follow_redirects=True)
             self.assertTrue("The session has been rejected" in rv.data, msg=rv.data)
 
     def test_session_delete(self):
         with app.test_request_context():
+            event = ObjectMother.get_event()
+            save_to_db(event, "Event Saved")
             session = ObjectMother.get_session()
             save_to_db(session, "Session Saved")
             url = url_for('event_sessions.delete_session', event_id=1, session_id=session.id)
@@ -117,6 +118,7 @@ class TestSessionApi(OpenEventViewTestCase):
             url = url_for('event_sessions.create_view', event_id=event.id)
             rv = self.app.get(url, follow_redirects=True)
             self.assertFalse("incorrectly configured" in rv.data, msg=rv.data)
+
 
 if __name__ == '__main__':
     unittest.main()

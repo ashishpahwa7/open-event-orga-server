@@ -1,11 +1,10 @@
 import unittest
 
+from app import current_app as app
+from tests.unittests.api.utils import get_path, create_event, create_services
+from tests.unittests.auth_helper import register, logout
 from tests.unittests.setup_database import Setup
 from tests.unittests.utils import OpenEventTestCase
-from tests.unittests.auth_helper import register, logout
-from tests.unittests.api.utils import get_path, create_event, create_services
-
-from app import current_app as app
 
 
 class TestGetApi(OpenEventTestCase):
@@ -34,7 +33,7 @@ class TestGetApi(OpenEventTestCase):
 
     def test_event_api(self):
         path = get_path(1)
-        self._test_path(path, 'TestEvent')
+        self._test_path(path, 'TestEvent', 'placeholder')
 
     def test_track_api(self):
         path = get_path(1, 'tracks', 1)

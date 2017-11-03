@@ -1,17 +1,16 @@
 from flask.ext.restplus import Namespace
 
 from app.models.sponsor import Sponsor as SponsorModel
-
-from .helpers.helpers import (
+from app.api.helpers import custom_fields as fields
+from app.api.helpers.helpers import (
     can_create,
     can_update,
     can_delete,
-    requires_auth
-)
-from .helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO, \
+    requires_auth,
+    replace_event_id)
+from app.api.helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO, \
     PAGE_PARAMS, POST_RESPONSES, PUT_RESPONSES, SERVICE_RESPONSES
-from .helpers.utils import Resource, ETAG_HEADER_DEFN
-from .helpers import custom_fields as fields
+from app.api.helpers.utils import Resource, ETAG_HEADER_DEFN
 
 api = Namespace('sponsors', description='Sponsors', path='/')
 
@@ -47,9 +46,10 @@ class SponsorDAO(ServiceDAO):
 DAO = SponsorDAO(SponsorModel, SPONSOR_POST)
 
 
-@api.route('/events/<int:event_id>/sponsors/<int:sponsor_id>')
+@api.route('/events/<string:event_id>/sponsors/<int:sponsor_id>')
 @api.doc(responses=SERVICE_RESPONSES)
 class Sponsor(Resource):
+    @replace_event_id
     @api.doc('get_sponsor')
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(SPONSOR)
@@ -58,6 +58,7 @@ class Sponsor(Resource):
         return DAO.get(event_id, sponsor_id)
 
     @requires_auth
+    @replace_event_id
     @can_delete(DAO)
     @api.doc('delete_sponsor')
     @api.marshal_with(SPONSOR)
@@ -66,6 +67,7 @@ class Sponsor(Resource):
         return DAO.delete(event_id, sponsor_id)
 
     @requires_auth
+    @replace_event_id
     @can_update(DAO)
     @api.doc('update_sponsor', responses=PUT_RESPONSES)
     @api.marshal_with(SPONSOR)
@@ -75,9 +77,10 @@ class Sponsor(Resource):
         return DAO.update(event_id, sponsor_id, self.api.payload)
 
 
-@api.route('/events/<int:event_id>/sponsors')
+@api.route('/events/<string:event_id>/sponsors')
 class SponsorList(Resource):
     @api.doc('list_sponsors')
+    @replace_event_id
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_list_with(SPONSOR)
     def get(self, event_id):
@@ -85,6 +88,7 @@ class SponsorList(Resource):
         return DAO.list(event_id)
 
     @requires_auth
+    @replace_event_id
     @can_create(DAO)
     @api.doc('create_sponsor', responses=POST_RESPONSES)
     @api.marshal_with(SPONSOR)
@@ -98,8 +102,9 @@ class SponsorList(Resource):
         )
 
 
-@api.route('/events/<int:event_id>/sponsors/types')
+@api.route('/events/<string:event_id>/sponsors/types')
 class SponsorTypesList(Resource):
+    @replace_event_id
     @api.doc('list_sponsor_types', model=[fields.String()])
     @api.header(*ETAG_HEADER_DEFN)
     def get(self, event_id):
@@ -107,8 +112,9 @@ class SponsorTypesList(Resource):
         return DAO.list_types(event_id)
 
 
-@api.route('/events/<int:event_id>/sponsors/page')
+@api.route('/events/<string:event_id>/sponsors/page')
 class SponsorListPaginated(Resource, PaginatedResourceBase):
+    @replace_event_id
     @api.doc('list_sponsors_paginated', params=PAGE_PARAMS)
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(SPONSOR_PAGINATED)

@@ -1,12 +1,14 @@
 import unittest
 
-from tests.unittests.utils import OpenEventTestCase
-from tests.unittests.setup_database import Setup
-from app import current_app as app
 from oauthlib.oauth2 import WebApplicationClient
-from app.helpers.oauth import OAuth
+from httmock import HTTMock
+
+from app import current_app as app
 from app.helpers.data import get_google_auth
-from tests.unittests.auth_helper import login, logout, register
+from app.helpers.oauth import OAuth
+from tests.unittests.auth_helper import login, logout, register, google_profile_mock, google_auth_mock
+from tests.unittests.setup_database import Setup
+from tests.unittests.utils import OpenEventTestCase
 
 
 class TestGoogleOauth(OpenEventTestCase):
@@ -20,9 +22,10 @@ class TestGoogleOauth(OpenEventTestCase):
             register(self.app, 'email@gmail.com', 'test')
             logout(self.app)
             login(self.app, 'email@gmail.com', 'test')
-            self.assertTrue('Open Event' in self.app.get('/gCallback/?state=dummy_state&code=dummy_code',
+            with HTTMock(google_auth_mock, google_profile_mock):
+                self.assertTrue('Open Event' in self.app.get('/gCallback/?state=dummy_state&code=dummy_code',
                                                          follow_redirects=True).data)
-            self.assertEqual(self.app.get('/gCallback/?state=dummy_state&code=dummy_code').status_code, 302)
+                self.assertEqual(self.app.get('/gCallback/?state=dummy_state&code=dummy_code').status_code, 302)
 
     def test_redirect(self):
         """Tests whether on redirection the user is being redirected to the proper authentication url of Google"""
@@ -40,12 +43,13 @@ class TestGoogleOauth(OpenEventTestCase):
     def test_error_return(self):
         """This tests the various errors returned by callback function"""
         with app.test_request_context():
-            self.assertTrue("You denied access" in self.app.get(
-                "/gCallback/?state=dummy_state&code=dummy_code&error=access denied").data)
-            self.assertTrue("Error encountered" in self.app.get(
-                "/gCallback/?state=dummy_state&code=dummy_code&error=12234").data)
-            self.assertTrue("/login" in self.app.get("/gCallback/?no_code_and_state").data)
-            self.assertEqual(self.app.get("/gCallback/1234").status_code, 404)
+            response = self.app.get("/gCallback/?state=dummy_state&code=dummy_code&error=access denied",
+                                    follow_redirects=True)
+            self.assertTrue("denied" in response.data, msg=response.data)
+            response = self.app.get("/gCallback/?state=dummy_state&code=dummy_code&error=12234", follow_redirects=True)
+            self.assertTrue("error" in response.data, msg=response.data)
+            self.assertTrue("/login" in self.app.get("/gCallback/?no_code_and_state", follow_redirects=True).data)
+            self.assertEqual(self.app.get("/gCallback/1234", follow_redirects=True).status_code, 404)
 
 
 if __name__ == '__main__':

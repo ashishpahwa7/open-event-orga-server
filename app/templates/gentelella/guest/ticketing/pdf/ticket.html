@@ -9,16 +9,18 @@
             margin: 0;
 
             @frame col1_frame {             /* Content frame 1 */
-                left: 80pt;  top: 30pt; height: 140pt;
+                left: 80pt;  top: 30pt;
+                height: 250pt; width: 300pt;
             }
 
             @frame qrcode {
-                left: 455pt;  top: 35pt;
+                left: 455pt;  top: 50pt;
                 width: 100pt; height: 120pt;
             }
             @frame number_frame {
                  left: 455pt;  top: 25pt;
                 width: 100pt; height: 30pt;
+                -pdf-frame-content: number_content;
             }
 
 
@@ -41,29 +43,33 @@
 </body>
 </html>
 {% for holder in order.ticket_holders %}
-        <span class="label">Event</span><br>
-        <span style="font-size: 20px;">{{ order.event.name }}</span><br><br>
+    {% if email == order.user.email or email == holder.email or email == '' %}
+        <div id="main_content">
+            <span class="label">{{_("Event")}}</span><br>
+            <span style="font-size: 20px;">{{ order.event.name }}</span><br><br>
 
-        <span class="label">Location</span><br>
-        <span style="font-size: 15px;">{{ order.event.location_name }}</span><br><br>
+            <span class="label">{{_("Location")}}</span><br>
+            <span style="font-size: 15px;">{{ order.event.location_name }}</span><br><br>
 
-        <span class="label">Date and Time</span><br>
-        <span  style="font-size: 15px;">{{ order.event.start_time | datetime }} to {{ order.event.end_time | datetime }}</span>
-        <br><br>
+            <span class="label">{{_("Date and Time")}}</span><br>
+            <span  style="font-size: 15px;">{{ order.event.start_time | datetime }} to {{ order.event.end_time | datetime }}</span>
+            <br><br>
 
-        <span class="label">Type</span><br>
-        <span  style="font-size: 20px;">{{ holder.ticket.name }}</span>
-        <br><br>
+            <span class="label">{{_("Type")}}</span><br>
+            <span style="font-size: 20px;">{{ holder.ticket.name }}</span>
+            <br><br>
+        </div>
 
         <div id="qrcode">
             <img src="data:image/png;base64,{{ holder.qr_code }}" />
         </div>
-        <strong style="color: #ffffff; text-align: center">#{{ order.get_invoice_number() }}/{{ holder.id }}</strong>
+        <strong id="number_content" style="color: #000; text-align: center">#{{ order.get_invoice_number() }}/{{ holder.id }}</strong>
 
-        <div>
+        <div id="personal_content_{{ holder.id }}">
             <span>{{ holder.name }}</span><br>
             <span>{{ holder.email }}</span>
         </div>
 
-    <pdf:nextpage />
+        <pdf:nextpage />
+    {% endif %}
 {% endfor %}

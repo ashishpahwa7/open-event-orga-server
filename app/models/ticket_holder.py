@@ -3,7 +3,7 @@ from StringIO import StringIO
 
 import qrcode
 
-from . import db
+from app.models import db
 
 
 class TicketHolder(db.Model):
@@ -17,8 +17,8 @@ class TicketHolder(db.Model):
     city = db.Column(db.String)
     state = db.Column(db.String)
     country = db.Column(db.String)
-    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'))
-    order_id = db.Column(db.Integer, db.ForeignKey('orders.id'))
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id', ondelete='CASCADE'))
+    order_id = db.Column(db.Integer, db.ForeignKey('orders.id', ondelete='CASCADE'))
     order = db.relationship('Order', backref='ticket_holders')
     ticket = db.relationship('Ticket', backref='ticket_holders')
     checked_in = db.Column(db.Boolean, default=False)
@@ -71,7 +71,7 @@ class TicketHolder(db.Model):
             box_size=10,
             border=0,
         )
-        qr.add_data(self.order.identifier + "/" + str(self.id))
+        qr.add_data(self.order.identifier + "-" + str(self.id))
         qr.make(fit=True)
         img = qr.make_image()
 

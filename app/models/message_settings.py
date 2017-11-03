@@ -1,5 +1,4 @@
-from . import db
-
+from app.models import db
 
 USER_REGISTER = 'User Registration'
 USER_CONFIRM = 'User Confirmation'
@@ -29,13 +28,13 @@ class MessageSettings(db.Model):
         self.user_control_status = user_control_status
 
     def __repr__(self):
-        return '<Message Setting %r >' % (self.action)
+        return '<Message Setting %r >' % self.action
 
     def __str__(self):
         return unicode(self).encode('utf-8')
 
     def __unicode__(self):
-        return 'Message Setting %r' % (self.action)
+        return 'Message Setting %r' % self.action
 
     @property
     def serialize(self):

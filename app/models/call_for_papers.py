@@ -1,6 +1,8 @@
 from sqlalchemy.orm import backref
+import pytz
+from sqlalchemy.ext.hybrid import hybrid_property
 
-from . import db
+from app.models import db
 
 
 class CallForPaper(db.Model):
@@ -13,11 +15,11 @@ class CallForPaper(db.Model):
     timezone = db.Column(db.String, nullable=False, default="UTC")
     hash = db.Column(db.String, nullable=True)
     privacy = db.Column(db.String, nullable=False)
-    event_id = db.Column(
-        db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
     events = db.relationship("Event", backref=backref("call_for_papers", uselist=False))
 
-    def __init__(self, announcement=None, start_date=None, end_date=None, timezone='UTC', hash=None, privacy='public', event_id=None):
+    def __init__(self, announcement=None, start_date=None, end_date=None, timezone='UTC', hash=None, privacy='public',
+                 event_id=None):
         self.announcement = announcement
         self.start_date = start_date
         self.end_date = end_date
@@ -35,12 +37,29 @@ class CallForPaper(db.Model):
     def __unicode__(self):
         return self.announcement
 
+    def get_tz_aware_time(self, time):
+        return pytz.timezone(self.timezone).localize(time)
+
+    @hybrid_property
+    def start_date_tz(self):
+        return self.get_tz_aware_time(self.start_date)
+
+    @hybrid_property
+    def end_date_tz(self):
+        return self.get_tz_aware_time(self.end_date)
+
     @property
     def serialize(self):
         """Return object data in easily serializeable format"""
 
-        return {'id': self.id,
-                'announcement': self.announcement,
-                'start_date':self.start_date,
-                'end_date':self.end_date,
-                'timezone':self.timezone}
+        return {
+            'id': self.id,
+            'announcement': self.announcement,
+            'start_date': self.start_date.strftime('%m/%d/%Y') if self.start_date else '',
+            'start_time': self.start_date.strftime('%H:%M') if self.start_date else '',
+            'end_date': self.end_date.strftime('%m/%d/%Y') if self.end_date else '',
+            'end_time': self.end_date.strftime('%H:%M') if self.end_date else '',
+            'timezone': self.timezone,
+            'privacy': self.privacy,
+            'hash': self.hash
+        }

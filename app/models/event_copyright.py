@@ -1,6 +1,6 @@
 from sqlalchemy.orm import backref
 
-from . import db
+from app.models import db
 
 
 class EventCopyright(db.Model):
@@ -17,10 +17,8 @@ class EventCopyright(db.Model):
     year = db.Column(db.Integer)
     logo = db.Column(db.String)
 
-    event_id = db.Column(
-        db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
-    event = db.relationship(
-        'Event', backref=backref('copyright', uselist=False))
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
+    event = db.relationship('Event', backref=backref('copyright', uselist=False))
 
     def __init__(self,
                  holder=None,
@@ -46,3 +44,16 @@ class EventCopyright(db.Model):
 
     def __unicode__(self):
         return self.holder
+
+    @property
+    def serialize(self):
+        """Return object data in easily serializable format"""
+        return {
+            'id': self.id,
+            'holder': self.holder,
+            'holder_url': self.holder_url,
+            'licence': self.licence,
+            'licence_url': self.licence_url,
+            'year': self.year,
+            'logo': self.logo
+        }

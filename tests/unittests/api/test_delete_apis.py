@@ -1,19 +1,19 @@
-import unittest
 import json
+import unittest
 
-
-from tests.unittests.setup_database import Setup
-from tests.unittests.utils import OpenEventTestCase
+from app import current_app as app
 from tests.unittests.api.utils import create_event, get_path, Event, Session
 from tests.unittests.api.utils_post_data import *
 from tests.unittests.auth_helper import register, login
-from app import current_app as app
+from tests.unittests.setup_database import Setup
+from tests.unittests.utils import OpenEventTestCase
 
 
 class TestDeleteApi(OpenEventTestCase):
     """
     Test Delete APIs for 200 (successful) status codes
     """
+
     def setUp(self):
         self.app = Setup.create_app()
         with app.test_request_context():
@@ -55,7 +55,7 @@ class TestDeleteApi(OpenEventTestCase):
         with app.test_request_context():
             item = model.query.get(1)
             self.assertNotEqual(item, None)
-            self.assertEqual(item.in_trash, True)
+            self.assertTrue(item.deleted_at is not None)
 
     def test_event_api(self):
         self._test_model('event', POST_EVENT_DATA)

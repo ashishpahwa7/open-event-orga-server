@@ -1,79 +1,123 @@
-"""Written by - Rafal Kowalski"""
+# -*- coding: utf-8 -*-
 import os
 
-_basedir = os.path.abspath(os.path.dirname(__file__))
+basedir = os.path.abspath(os.path.dirname(__file__))
+
+VERSION_NAME = '1.0.0-alpha.10'
+
+LANGUAGES = {
+    'en': 'English',
+    'bn': 'Bengali/Bangla',
+    'zh_Hans': 'Chinese (Simplified)',
+    'zh_Hant': 'Chinese (Traditional)',
+    'fr': 'French',
+    'de': 'German',
+    'id': 'Indonesian',
+    'ko': 'Korean',
+    'pl': 'Polish',
+    'es': 'Spanish',
+    'th': 'Thai',
+    'vi': 'Vietnamese',
+    'hi': 'Hindi',
+    'ja': 'Japanese',
+    'ru': 'Russian',
+}
 
 
 class Config(object):
+    """
+    The base configuration option. Contains the defaults.
+    """
+
     DEBUG = False
+
+    DEVELOPMENT = False
+    STAGING = False
+    PRODUCTION = False
     TESTING = False
+
+    CACHING = False
+    PROFILE = False
+    SQLALCHEMY_RECORD_QUERIES = False
+    INTEGRATE_SOCKETIO = False
+
+    VERSION = VERSION_NAME
+    SQLALCHEMY_TRACK_MODIFICATIONS = True
+    ERROR_404_HELP = False
     CSRF_ENABLED = True
     SERVER_NAME = os.getenv('SERVER_NAME')
     CORS_HEADERS = 'Content-Type'
-    SQLALCHEMY_TRACK_MODIFICATIONS = True
-    ERROR_404_HELP = False
-    CACHING = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///../app.db')
-    BASE_DIR = _basedir
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', None)
+    DATABASE_QUERY_TIMEOUT = 0.1
+
+    if not SQLALCHEMY_DATABASE_URI:
+        print '`DATABASE_URL` either not exported or empty'
+        exit()
+
+    BASE_DIR = basedir
+    FORCE_SSL = os.getenv('FORCE_SSL', 'no') == 'yes'
+
+    UPLOADS_FOLDER = BASE_DIR + '/static/uploads/'
+    TEMP_UPLOADS_FOLDER = BASE_DIR + '/static/uploads/temp/'
+    UPLOAD_FOLDER = UPLOADS_FOLDER
+    STATIC_URL = '/static/'
+    STATIC_ROOT = 'staticfiles'
+    STATICFILES_DIRS = (os.path.join(BASE_DIR, 'static'),)
+
+    if FORCE_SSL:
+        PREFERRED_URL_SCHEME = 'https'
 
 
 class ProductionConfig(Config):
-    DEBUG = False
+    """
+    The configuration for a production environment
+    """
+
     MINIFY_PAGE = True
     PRODUCTION = True
-    INTEGRATE_SOCKETIO = True
+    INTEGRATE_SOCKETIO = False
+    CACHING = True
 
-    # Test database performance
-    SQLALCHEMY_RECORD_QUERIES = True
-    DATABASE_QUERY_TIMEOUT = 0.1
-
-    # if force off
+    # if force on
     socketio_integration = os.environ.get('INTEGRATE_SOCKETIO')
-    if socketio_integration == 'false':
-        INTEGRATE_SOCKETIO = False
-    # you don't want production on default db
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', '')
-    if not SQLALCHEMY_DATABASE_URI:
-        print '`DATABASE_URL` either not exported or empty'
+    if socketio_integration == 'true':
+        INTEGRATE_SOCKETIO = True
 
 
-class StagingConfig(Config):
-    DEVELOPMENT = True
-    DEBUG = True
+class StagingConfig(ProductionConfig):
+    """
+    The configuration for a staging environment
+    """
+
+    PRODUCTION = False
+    STAGING = True
 
 
 class DevelopmentConfig(Config):
+    """
+    The configuration for a development environment
+    """
+
     DEVELOPMENT = True
     DEBUG = True
-    MINIFY_PAGE = False
+    CACHING = True
 
     # Test database performance
     SQLALCHEMY_RECORD_QUERIES = True
-    DATABASE_QUERY_TIMEOUT = 0.1
 
     # If Env Var `INTEGRATE_SOCKETIO` is set to 'true', then integrate SocketIO
     socketio_integration = os.environ.get('INTEGRATE_SOCKETIO')
     INTEGRATE_SOCKETIO = bool(socketio_integration == 'true')
 
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', '')
-    if not SQLALCHEMY_DATABASE_URI:
-        print '`DATABASE_URL` either not exported or empty'
-
 
 class TestingConfig(Config):
+    """
+    The configuration for a test suit
+    """
+    INTEGRATE_SOCKETIO = False
     TESTING = True
-    CACHING = False
     CELERY_ALWAYS_EAGER = True
     CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
-
-
-class LocalPSQLConfig(Config):
-    DEVELOPMENT = True
-    DEBUG = True
-    SQLALCHEMY_DATABASE_URI = "postgresql://postgres:start@localhost/test"
-
-
-class LocalSQLITEConfig(Config):
-    DEVELOPMENT = True
-    DEBUG = True
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(_basedir, 'app.db')
+    SQLALCHEMY_RECORD_QUERIES = True
+    DEBUG_TB_ENABLED = False
+    BROKER_BACKEND = 'memory'

@@ -34,7 +34,9 @@
                     class="fa fa-youtube-play fa-fw"></i></a>
         {% elif what == 'audio' %}
             <a href="{{ link }}" class="btn btn-default audio-btn" data-toggle="tooltip" data-placement="right"
-               title="{{ what | capitalize }}" data-content="<audio controls preload='none'><source src='{{link}}' type='audio/mpeg'></audio>" target="_blank"><i
+               title="{{ what | capitalize }}"
+               data-content="<audio controls preload='none'><source src='{{ link }}' type='audio/mpeg'></audio>"
+               target="_blank"><i
                     class="fa fa-volume-up fa-fw"></i></a>
         {% elif what == 'slides' %}
             <a href="{{ link }}" class="btn btn-default" data-toggle="tooltip" data-placement="right"
@@ -50,10 +52,11 @@
 {% endmacro %}
 
 {% macro session_element(session = None, index=0) %}
+    {% if session.microlocation_id %}
     <li class="list-group-item" data-session-id="session-{{ session.id }}">
         <div class="row">
 
-            <div class="col-xs-1 col-md-1 col-sm-11 hidden-xs">
+            <div class="col-xs-1 col-md-1 col-sm-1 hidden-xs">
                 <div class="btn-group-vertical" role="group">
                     {{ side_link(session.video, 'video') }}
                     {{ side_link(session.audio, 'audio') }}
@@ -75,7 +78,7 @@
 
                     {% for speaker in session.speakers %}
                         <img data-toggle="tooltip" data-placement="bottom" title="{{ speaker.name }}"
-                             src="{{ speaker.photo }}"
+                             src="{{ speaker.small if speaker.small and speaker.small != '' and '.' in speaker.small else speaker.photo }}"
                              onerror="imgError(this);">
                     {% endfor %}
 
@@ -117,42 +120,32 @@
             </div>
             <div class="hidden-xs">
                 <p class="session-location">
-                    {# {% if session.state == 'pending' %}#}
-                    {#     <span class="detail-status label label-warning">Under Review</span>#}
-                    {# {% elif session.state == 'draft' %}#}
-                    {#     <span class="detail-status label label-warning">Draft</span>#}
-                    {# {% elif session.state == 'accepted' %}#}
-                    {#     <span class="detail-status label label-success">Accepted</span>#}
-                    {# {% elif session.state == 'rejected' %}#}
-                    {#     <span class="detail-status label label-danger">Rejected</span>#}
-                    {# {% else %}#}
-                    {#     <span class="detail-status label label-info">N/A</span>#}
-                    {# {% endif %}#}
                     {{ session.microlocation.name }} <i class="fa fa-map-marker fa-fw"></i><br>
-                    {{ session.start_time.strftime('%I:%M %p') }} <i class="fa fa-clock-o fa-fw"></i>
+                    {{ session.start_time.strftime('%I:%M %p / %d-%m-%Y') }} <i class="fa fa-clock-o fa-fw"></i>
                 </p>
             </div>
         </div>
     </li>
+    {% endif %}
 {% endmacro %}
 
-<nav id="track-navbar" class="navbar navbar-default track-navbar">
-    <div class="container-fluid">
-        <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
-            <ul class="nav navbar-nav">
+<nav id="track-navbar" class="navbar navbar-default track-navbar" >
+    <div class="container-fluid track-container-fluid">
+        <div class="navbar-collapse track-navbar-collapse" id="bs-example-navbar-collapse-1">
+            <ul class="nav navbar-nav" style="max-width: 100%">
                 {% for track in tracks %}
-                    <li class="track-link"><a href="#track-{{ track.id }}">{{ track.name }}</a></li>
+                    <li class="track-link"><i class="fa fa-circle" aria-hidden="true"></i><a href="#track-{{ track.id }}">{{ track.name }}</a></li>
                 {% endfor %}
-
             </ul>
         </div>
     </div>
 </nav>
+
 <ul class="list-group session-list">
     {% for track in tracks %}
         <h3 style="font-weight: 300;" id="track-{{ track.id }}">{{ track.name }}</h3>
         {% for session in track.sessions %}
-            {% if session in accepted_sessions %}
+            {% if session.state == 'accepted' and not session.deleted_at %}
                 {{ session_element(session, loop.index) }}
             {% endif %}
         {% endfor %}
@@ -160,14 +153,8 @@
     {% endfor %}
 </ul>
 
-<script src="{{ url_for('static', filename='admin/lib/sticky-kit/jquery.sticky-kit.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/vendor/sticky-kit/jquery.sticky-kit.min.js') }}"></script>
 <script type="text/javascript">
-    $(function () {
-        $('[data-toggle="tooltip"]').tooltip();
-        $("#track-navbar").stick_in_parent({});
-        $('body').scrollspy({target: '#track-navbar'});
-
-    });
 
     $('a[href*="#"]:not([href="#"])').click(function () {
         if (location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') && location.hostname == this.hostname) {

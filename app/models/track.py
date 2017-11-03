@@ -1,5 +1,4 @@
-"""Copyright 2015 Rafal Kowalski"""
-from . import db
+from app.models import db
 
 
 class Track(db.Model):
@@ -12,8 +11,7 @@ class Track(db.Model):
     color = db.Column(db.String, nullable=False)
     location = db.Column(db.String)
     sessions = db.relationship('Session', backref='track', lazy='dynamic')
-    event_id = db.Column(
-        db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
 
     def __init__(self, name=None, description=None, event_id=None,
                  session=None, track_image_url=None, color=None,
@@ -40,15 +38,21 @@ class Track(db.Model):
         return self.name
 
     @property
+    def font_color(self):
+        if self.color.startswith('#'):
+            h = self.color.lstrip('#')
+            a = 1 - (0.299 * int(h[0:2], 16) + 0.587 * int(h[2:4], 16) + 0.114 * int(h[4:6], 16))/255
+        elif self.color.startswith('rgba'):
+            h = self.color.lstrip('rgba').replace('(', '', 1).replace(')', '', 1)
+            h = h.split(',')
+            a = 1 - (0.299 * int(int(h[0]), 16) + 0.587 * int(int(h[1]), 16) + 0.114 * int(int(h[2]), 16)) / 255
+        return '#000000' if (a < 0.5) else '#ffffff'
+
+    @property
     def serialize(self):
-        """Return object data in easily serializeable format"""
-        sessions = [{'id': session.id, 'title': session.title}
-                    for session in self.sessions]
         return {
             'id': self.id,
             'name': self.name,
-            'description': self.description,
-            'sessions': sessions,
-            'track_image_url': self.track_image_url,
-            'color': self.color
+            'color': self.color,
+            'font_color': self.font_color
         }

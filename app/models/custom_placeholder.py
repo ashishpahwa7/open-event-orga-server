@@ -1,5 +1,4 @@
-"""Copyright 2015 Rafal Kowalski"""
-from . import db
+from app.models import db
 
 
 class CustomPlaceholder(db.Model):

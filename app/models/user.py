@@ -1,21 +1,23 @@
-from sqlalchemy import event, desc
 from datetime import datetime
 
 import humanize
-from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 from flask import url_for
+from sqlalchemy import event, desc
+from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 
+from app.helpers.helpers import get_count
 from app.models.session import Session
 from app.models.speaker import Speaker
-from . import db
 from user_detail import UserDetail
-from .role import Role
-from .service import Service
-from .permission import Permission
-from .system_role import UserSystemRole
-from .user_permissions import UserPermission
-from .users_events_roles import UsersEventsRoles as UER
-from .notifications import Notification
+from app.models import db
+from app.models.notifications import Notification
+from app.models.permission import Permission
+from app.models.role import Role
+from app.models.service import Service
+from app.models.system_role import UserSystemRole
+from app.models.user_permissions import UserPermission
+from app.models.users_events_roles import UsersEventsRoles as UER
+from app.models.panel_permissions import PanelPermission
 
 # System-wide
 ADMIN = 'admin'
@@ -32,6 +34,7 @@ COORGANIZER = 'coorganizer'
 TRACK_ORGANIZER = 'track_organizer'
 MODERATOR = 'moderator'
 ATTENDEE = 'attendee'
+REGISTRAR = 'registrar'
 
 
 class User(db.Model):
@@ -48,10 +51,9 @@ class User(db.Model):
     is_verified = db.Column(db.Boolean, default=False)
     signup_time = db.Column(db.DateTime)
     last_access_time = db.Column(db.DateTime)
-    in_trash = db.Column(db.Boolean, default=False)
     user_detail = db.relationship("UserDetail", uselist=False, backref="user")
     created_date = db.Column(db.DateTime, default=datetime.now())
-    trash_date = db.Column(db.DateTime)
+    deleted_at = db.Column(db.DateTime)
 
     # User Permissions
     def can_publish_event(self):
@@ -84,7 +86,7 @@ class User(db.Model):
         """
         attendee_role = Role.query.filter_by(name=ATTENDEE).first()
         uer = UER.query.filter(UER.user == self, UER.event_id == event_id,
-            UER.role != attendee_role).first()
+                               UER.role != attendee_role).first()
         if uer is None:
             return False
         else:
@@ -95,8 +97,8 @@ class User(db.Model):
         """
         role = Role.query.filter_by(name=role_name).first()
         uer = UER.query.filter_by(user=self,
-                                               event_id=event_id,
-                                               role=role).first()
+                                  event_id=event_id,
+                                  role=role).first()
         if not uer:
             return False
         else:
@@ -113,6 +115,9 @@ class User(db.Model):
 
     def is_moderator(self, event_id):
         return self._is_role(MODERATOR, event_id)
+
+    def is_registrar(self, event_id):
+        return self._is_role(REGISTRAR, event_id)
 
     def is_attendee(self, event_id):
         return self._is_role(ATTENDEE, event_id)
@@ -140,7 +145,7 @@ class User(db.Model):
         service = Service.query.filter_by(name=service_name).first()
 
         uer_querylist = UER.query.filter_by(user=self,
-                                                         event_id=event_id)
+                                            event_id=event_id)
         for uer in uer_querylist:
             role = uer.role
             perm = Permission.query.filter_by(role=role,
@@ -212,6 +217,19 @@ class User(db.Model):
         role = UserSystemRole.query.filter_by(user=self, role_id=role_id).first()
         return bool(role)
 
+    def first_access_panel(self):
+        """Check if the user is assigned a Custom Role or not
+        This checks if there is an entry containing the current user in the `user_system_roles` table
+        returns panel name if exists otherwise false
+        """
+        custom_role = UserSystemRole.query.filter_by(user=self).first()
+        if not custom_role:
+            return False
+        perm = PanelPermission.query.filter_by(role_id=custom_role.role_id, can_access=True).first()
+        if not perm:
+            return False
+        return perm.panel_name
+
     def can_access_panel(self, panel_name):
         """Check if user can access an Admin Panel
         """
@@ -219,15 +237,14 @@ class User(db.Model):
             return True
 
         custom_sys_roles = UserSystemRole.query.filter_by(user=self)
-        for role in custom_sys_roles:
-            if role.can_access(panel_name):
+        for custom_role in custom_sys_roles:
+            if custom_role.role.can_access(panel_name):
                 return True
 
         return False
 
     def get_unread_notif_count(self):
-        return len(Notification.query.filter_by(user=self,
-                                                has_read=False).all())
+        return get_count(Notification.query.filter_by(user=self, has_read=False))
 
     def get_unread_notifs(self):
         """Get unread notifications with titles, humanized receiving time

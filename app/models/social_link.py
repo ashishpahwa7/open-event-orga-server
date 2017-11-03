@@ -1,4 +1,4 @@
-from . import db
+from app.models import db
 
 
 class SocialLink(db.Model):
@@ -6,8 +6,7 @@ class SocialLink(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, nullable=False)
     link = db.Column(db.String, nullable=False)
-    event_id = db.Column(
-        db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
     events = db.relationship("Event", backref="social_link")
 
     def __init__(self, name=None, link=None, event_id=None):

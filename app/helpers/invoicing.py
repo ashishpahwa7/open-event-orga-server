@@ -1,13 +1,13 @@
-"""Copyright 2016 Niranjan Rajendran"""
-
 from datetime import datetime
 
 from app.helpers.cache import cache
 from app.helpers.data import save_to_db
-from app.helpers.helpers import get_count
+from app.helpers.helpers import get_count, represents_int
+from app.helpers.payment import StripePaymentsManager, PayPalPaymentsManager
+from app.models.discount_code import DiscountCode, EVENT
+from app.models.event import Event
 from app.models.event_invoice import EventInvoice
 
-from app.helpers.payment import StripePaymentsManager, PayPalPaymentsManager
 
 class InvoicingManager(object):
     """All event service fee invoicing related functions"""
@@ -19,6 +19,21 @@ class InvoicingManager(object):
     @staticmethod
     def get_invoice_by_identifier(identifier):
         return EventInvoice.query.filter_by(identifier=identifier).first()
+
+    @staticmethod
+    def get_discount_codes():
+        return DiscountCode.query.filter_by(used_for=EVENT).all()
+
+    @staticmethod
+    def get_discount_code_used_count(discount_code_id):
+        return get_count(Event.query.filter_by(discount_code_id=discount_code_id))
+
+    @staticmethod
+    def get_discount_code(discount_code):
+        if represents_int(discount_code):
+            return DiscountCode.query.filter_by(id=discount_code).filter_by(used_for=EVENT).first()
+        else:
+            return DiscountCode.query.filter_by(code=discount_code).filter_by(used_for=EVENT).first()
 
     @staticmethod
     def get_invoices(event_id=None, status=None, from_date=None, to_date=None):
@@ -103,11 +118,11 @@ class InvoicingManager(object):
 
     @staticmethod
     def charge_paypal_invoice_payment(invoice):
-        payment_details = PayPalPaymentsManager\
+        payment_details = PayPalPaymentsManager \
             .get_approved_payment_details(invoice, credentials=PayPalPaymentsManager.get_credentials())
 
         if 'PAYERID' in payment_details:
-            capture_result = PayPalPaymentsManager\
+            capture_result = PayPalPaymentsManager \
                 .capture_payment(invoice, payment_details['PAYERID'],
                                  credentials=PayPalPaymentsManager.get_credentials())
 
@@ -122,3 +137,37 @@ class InvoicingManager(object):
                 return False, capture_result['L_SHORTMESSAGE0']
         else:
             return False, 'Payer ID missing. Payment flow tampered.'
+
+    @staticmethod
+    def create_edit_discount_code(form, discount_code_id=None):
+        if not discount_code_id:
+            discount_code = DiscountCode()
+        else:
+            discount_code = InvoicingManager.get_discount_code(discount_code_id)
+        discount_code.code = form.get('code')
+        discount_code.value = form.get('value')
+        discount_code.type = 'percent'
+        discount_code.max_quantity = form.get('max_quantity', None)
+        discount_code.tickets_number = form.get('tickets_number')
+        discount_code.used_for = EVENT
+        discount_code.marketer_id = form.get('marketer')
+        discount_code.is_active = form.get('status', 'in_active') == 'active'
+
+        if discount_code.max_quantity == "":
+            discount_code.max_quantity = None
+
+        try:
+            discount_code.valid_from = datetime.strptime(form.get('start_date', None) + ' ' +
+                                                         form.get('start_time', None), '%m/%d/%Y %H:%M')
+        except:
+            discount_code.valid_from = None
+
+        try:
+            discount_code.valid_till = datetime.strptime(form.get('end_date', None) + ' ' +
+                                                         form.get('end_time', None), '%m/%d/%Y %H:%M')
+        except:
+            discount_code.valid_till = None
+
+        save_to_db(discount_code)
+
+        return discount_code

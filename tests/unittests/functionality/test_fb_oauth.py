@@ -1,12 +1,12 @@
 import unittest
 
-from tests.unittests.utils import OpenEventTestCase
-from tests.unittests.setup_database import Setup
 from app import current_app as app
-from app.helpers.oauth import FbOAuth
-from app.helpers.data import get_facebook_auth
-from tests.unittests.auth_helper import login, logout, register
 from app.helpers.data import create_user_oauth
+from app.helpers.data import get_facebook_auth
+from app.helpers.oauth import FbOAuth
+from tests.unittests.auth_helper import login, logout, register
+from tests.unittests.setup_database import Setup
+from tests.unittests.utils import OpenEventTestCase
 
 
 class TestFacebookOauth(OpenEventTestCase):
@@ -34,12 +34,13 @@ class TestFacebookOauth(OpenEventTestCase):
     def test_error_return(self):
         """This tests the various errors returned by callback function"""
         with app.test_request_context():
-            self.assertTrue("You denied access" in self.app.get(
-                "/fCallback/?code=dummy_code&state=dummy_state&error=access denied").data)
-            self.assertTrue("Error encountered" in self.app.get(
-                "/fCallback/?code=dummy_code&state=dummy_state&error=12234").data)
-            self.assertTrue("/login" in self.app.get("/fCallback/?no_code_and_state").data)
-            self.assertEqual(self.app.get("/fCallback/1234").status_code, 404)
+            response = self.app.get("/fCallback/?code=dummy_code&state=dummy_state&error=access denied",
+                                    follow_redirects=True)
+            self.assertTrue("denied" in response.data, msg=response.data)
+            response = self.app.get("/fCallback/?code=dummy_code&state=dummy_state&error=12234", follow_redirects=True)
+            self.assertTrue("error" in response.data, msg=response.data)
+            self.assertTrue("/login" in self.app.get("/fCallback/?no_code_and_state", follow_redirects=True).data)
+            self.assertEqual(self.app.get("/fCallback/1234", follow_redirects=True).status_code, 404)
 
     def test_if_user_has_user_details(self):
         """Check if user has user_details fields during sign up via facebook"""

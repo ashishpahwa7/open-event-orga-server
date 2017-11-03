@@ -1,6 +1,7 @@
-from . import db
+from app.models import db
 
-from .panel_permissions import PanelPermission
+from app.models.panel_permissions import PanelPermission
+
 
 class CustomSysRole(db.Model):
     """Custom System Role
@@ -15,7 +16,7 @@ class CustomSysRole(db.Model):
 
     def can_access(self, panel_name):
         perm = PanelPermission.query.filter_by(role=self,
-            panel_name=panel_name).first()
+                                               panel_name=panel_name).first()
         if perm:
             return perm.can_access
         else:
@@ -37,10 +38,10 @@ class UserSystemRole(db.Model):
     __tablename__ = 'user_system_role'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'))
     user = db.relationship('User', backref='sys_roles')
 
-    role_id = db.Column(db.Integer, db.ForeignKey('custom_sys_role.id'))
+    role_id = db.Column(db.Integer, db.ForeignKey('custom_sys_role.id', ondelete='CASCADE'))
     role = db.relationship('CustomSysRole')
 
     def __init__(self, user, role):

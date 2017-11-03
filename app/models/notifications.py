@@ -1,4 +1,4 @@
-from . import db
+from app.models import db
 
 USER_CHANGE_EMAIL = "User email"
 TICKET_PURCHASED = 'Ticket(s) Purchased'
@@ -12,6 +12,8 @@ SESSION_ACCEPT_REJECT = 'Session Accept or Reject'
 INVITE_PAPERS = 'Invitation For Papers'
 AFTER_EVENT = 'After Event'
 EVENT_PUBLISH = 'Event Published'
+TICKET_PURCHASED_ORGANIZER = 'Ticket(s) Purchased to Organizer'
+TICKET_RESEND_ORGANIZER = 'Ticket Resend'
 
 
 class Notification(db.Model):
@@ -21,7 +23,7 @@ class Notification(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'))
     user = db.relationship('User', backref='notifications')
 
     title = db.Column(db.String)
@@ -30,13 +32,7 @@ class Notification(db.Model):
     received_at = db.Column(db.DateTime)
     has_read = db.Column(db.Boolean)
 
-    def __init__(self,
-                 user,
-                 title,
-                 message,
-                 action,
-                 received_at,
-                 has_read=False):
+    def __init__(self, user, title, message, action, received_at, has_read=False):
         self.user = user
         self.title = title
         self.message = message

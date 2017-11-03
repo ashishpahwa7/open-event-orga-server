@@ -1,10 +1,15 @@
 import os
 from base64 import b64encode
 from shutil import copyfile, rmtree
-from flask.ext.scrypt import generate_password_hash
-from boto.s3.connection import S3Connection
+
+import boto
+import magic
+from boto.gs.connection import GSConnection
+from boto.s3.connection import S3Connection, OrdinaryCallingFormat
 from boto.s3.key import Key
+from flask.ext.scrypt import generate_password_hash
 from werkzeug.utils import secure_filename
+from flask import current_app as app
 
 from app.settings import get_settings
 
@@ -44,7 +49,16 @@ UPLOAD_PATHS = {
         'icon': 'users/{user_id}/icon'
     },
     'temp': {
-        'event': 'events/temp/{uuid}'
+        'event': 'events/temp/{uuid}',
+        'image': 'temp/images/{uuid}'
+    },
+    'exports': {
+        'zip': 'exports/{event_id}/zip',
+        'pentabarf': 'exports/{event_id}/pentabarf',
+        'ical': 'exports/{event_id}/ical',
+        'xcal': 'exports/{event_id}/xcal',
+        'csv': 'exports/{event_id}/csv',
+        'pdf': 'exports/{event_id}/pdf'
     }
 }
 
@@ -57,6 +71,7 @@ class UploadedFile(object):
     """
     Helper for a disk-file to replicate request.files[ITEM] class
     """
+
     def __init__(self, file_path, filename):
         self.file_path = file_path
         self.filename = filename
@@ -76,6 +91,7 @@ class UploadedMemory(object):
     """
     Helper for a memory file to replicate request.files[ITEM] class
     """
+
     def __init__(self, data, filename):
         self.data = data
         self.filename = filename
@@ -93,28 +109,38 @@ class UploadedMemory(object):
 # MAIN
 #########
 
-def upload(file, key, **kwargs):
+def upload(uploaded_file, key, **kwargs):
     """
     Upload handler
     """
     # refresh settings
-    bucket_name = get_settings()['aws_bucket_name']
+    aws_bucket_name = get_settings()['aws_bucket_name']
     aws_key = get_settings()['aws_key']
     aws_secret = get_settings()['aws_secret']
+    aws_region = get_settings()['aws_region']
+
+    gs_bucket_name = get_settings()['gs_bucket_name']
+    gs_key = get_settings()['gs_key']
+    gs_secret = get_settings()['gs_secret']
+
     storage_place = get_settings()['storage_place']
+
     # upload
-    if bucket_name and aws_key and aws_secret and storage_place == 's3':
-        return upload_to_aws(bucket_name, aws_key, aws_secret, file, key, **kwargs)
+    if aws_bucket_name and aws_key and aws_secret and storage_place == 's3':
+        return upload_to_aws(aws_bucket_name, aws_region, aws_key, aws_secret, uploaded_file, key, **kwargs)
+    elif gs_bucket_name and gs_key and gs_secret and storage_place == 'gs':
+        return upload_to_gs(gs_bucket_name, gs_key, gs_secret, uploaded_file, key, **kwargs)
     else:
-        return upload_local(file, key, **kwargs)
+        return upload_local(uploaded_file, key, **kwargs)
 
 
-def upload_local(file, key, **kwargs):
+def upload_local(uploaded_file, key, **kwargs):
     """
     Uploads file locally. Base dir - static/media/
     """
-    filename = secure_filename(file.filename)
-    file_path = 'static/media/' + key + '/' + generate_hash(key) + '/' + filename
+    filename = secure_filename(uploaded_file.filename)
+    file_relative_path = 'static/media/' + key + '/' + generate_hash(key) + '/' + filename
+    file_path = app.config['BASE_DIR'] + '/' + file_relative_path
     dir_path = file_path.rsplit('/', 1)[0]
     # delete current
     try:
@@ -124,16 +150,26 @@ def upload_local(file, key, **kwargs):
     # create dirs
     if not os.path.isdir(dir_path):
         os.makedirs(dir_path)
-    file.save(file_path)
-    return '/serve_' + file_path
+    uploaded_file.save(file_path)
+    return '/serve_' + file_relative_path
 
 
-def upload_to_aws(bucket_name, aws_key, aws_secret, file, key, acl='public-read'):
+def upload_to_aws(bucket_name, aws_region, aws_key, aws_secret, file, key, acl='public-read'):
     """
     Uploads to AWS at key
     http://{bucket}.s3.amazonaws.com/{key}
     """
-    conn = S3Connection(aws_key, aws_secret)
+
+    if '.' in bucket_name and aws_region and aws_region != '':
+        conn = boto.s3.connect_to_region(
+            aws_region,
+            aws_access_key_id=aws_key,
+            aws_secret_access_key=aws_secret,
+            calling_format=OrdinaryCallingFormat()
+        )
+    else:
+        conn = S3Connection(aws_key, aws_secret)
+
     bucket = conn.get_bucket(bucket_name)
     k = Key(bucket)
     # generate key
@@ -144,24 +180,61 @@ def upload_to_aws(bucket_name, aws_key, aws_secret, file, key, acl='public-read'
     for item in bucket.list(prefix='/' + key_dir):
         item.delete()
     # set object settings
+
     file_data = file.read()
+    file_mime = magic.from_buffer(file_data, mime=True)
     size = len(file_data)
     sent = k.set_contents_from_string(
         file_data,
         headers={
-            'Content-Disposition': 'attachment; filename=%s' % filename
+            'Content-Disposition': 'attachment; filename=%s' % filename,
+            'Content-Type': '%s' % file_mime
         }
     )
     k.set_acl(acl)
-    s3_url = 'https://%s.s3.amazonaws.com/' % (bucket_name)
+    s3_url = 'https://%s.s3.amazonaws.com/' % bucket_name
     if sent == size:
         return s3_url + k.key
     return False
 
 
+def upload_to_gs(bucket_name, client_id, client_secret, file, key, acl='public-read'):
+    conn = GSConnection(client_id, client_secret, calling_format=OrdinaryCallingFormat())
+    bucket = conn.get_bucket(bucket_name)
+    k = Key(bucket)
+    # generate key
+    filename = secure_filename(file.filename)
+    key_dir = key + '/' + generate_hash(key) + '/'
+    k.key = key_dir + filename
+    # delete old data
+    for item in bucket.list(prefix='/' + key_dir):
+        item.delete()
+    # set object settings
+
+    file_data = file.read()
+    file_mime = magic.from_buffer(file_data, mime=True)
+    size = len(file_data)
+    sent = k.set_contents_from_string(
+        file_data,
+        headers={
+            'Content-Disposition': 'attachment; filename=%s' % filename,
+            'Content-Type': '%s' % file_mime
+        }
+    )
+    k.set_acl(acl)
+    gs_url = 'https://storage.googleapis.com/%s/' % bucket_name
+    if sent == size:
+        return gs_url + k.key
+    return False
+
+def is_external_file(filename):
+    return ('http://' in filename) or ('https://' in filename)
+
+
 # ########
 # HELPERS
 # ########
+
 
 def generate_hash(key):
     """

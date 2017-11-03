@@ -1,6 +1,6 @@
 from sqlalchemy.orm import backref
 
-from . import db
+from app.models import db
 
 
 class Tax(db.Model):
@@ -23,10 +23,8 @@ class Tax(db.Model):
     invoice_footer = db.Column(db.String)
     tax_include_in_price = db.Column(db.Boolean, default=False)
 
-    event_id = db.Column(
-        db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
-    event = db.relationship(
-        'Event', backref=backref('tax', uselist=False))
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
+    event = db.relationship('Event', backref=backref('tax', uselist=False))
 
     def __init__(self,
                  country=None,
@@ -64,3 +62,21 @@ class Tax(db.Model):
 
     def __unicode__(self):
         return self.tax_name
+
+    @property
+    def serialize(self):
+        """Return object data in easily serializable format"""
+        return {
+            'id': self.id,
+            'country': self.country,
+            'tax_name': self.tax_name,
+            'tax_id': self.tax_id,
+            'send_invoice': self.send_invoice,
+            'registered_company': self.registered_company,
+            'address': self.address,
+            'city': self.city,
+            'state': self.state,
+            'zip': self.zip,
+            'invoice_footer': self.invoice_footer,
+            'tax_include_in_price': self.tax_include_in_price
+        }

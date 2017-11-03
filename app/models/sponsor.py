@@ -1,6 +1,5 @@
-"""Copyright 2015 Rafal Kowalski"""
 from app.helpers.versioning import clean_up_string, clean_html
-from . import db
+from app.models import db
 
 
 class Sponsor(db.Model):
@@ -13,8 +12,7 @@ class Sponsor(db.Model):
     url = db.Column(db.String)
     level = db.Column(db.String)
     logo = db.Column(db.String)
-    event_id = db.Column(
-        db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
     sponsor_type = db.Column(db.String)
 
     def __init__(self, name=None, url=None, logo=None, event_id=None,
@@ -53,5 +51,8 @@ class Sponsor(db.Model):
             'id': self.id,
             'name': self.name,
             'url': self.url,
-            'logo': self.logo
+            'logo': self.logo,
+            'level': self.level,
+            'type': self.sponsor_type,
+            'description': self.description,
         }

@@ -1,12 +1,15 @@
-"""Copyright 2015 Rafal Kowalski"""
-from app.helpers.versioning import clean_up_string, clean_html
-from . import db
-from app.helpers.date_formatter import DateFormatter
 import datetime
+import pytz
+from sqlalchemy.ext.hybrid import hybrid_property
+
+from app.helpers.date_formatter import DateFormatter
+from app.helpers.versioning import clean_up_string, clean_html
+from app.models import db
+import app.models.event
 
 speakers_sessions = db.Table('speakers_sessions', db.Column(
     'speaker_id', db.Integer, db.ForeignKey('speaker.id', ondelete='CASCADE')), db.Column(
-        'session_id', db.Integer, db.ForeignKey('session.id', ondelete='CASCADE')))
+    'session_id', db.Integer, db.ForeignKey('session.id', ondelete='CASCADE')))
 
 
 class Session(db.Model):
@@ -23,14 +26,15 @@ class Session(db.Model):
     comments = db.Column(db.Text)
     start_time = db.Column(db.DateTime, nullable=False)
     end_time = db.Column(db.DateTime, nullable=False)
-    track_id = db.Column(db.Integer, db.ForeignKey('tracks.id'))
+    track_id = db.Column(db.Integer, db.ForeignKey('tracks.id', ondelete='CASCADE'))
     speakers = db.relationship(
         'Speaker',
         secondary=speakers_sessions,
         backref=db.backref('sessions', lazy='dynamic'))
     language = db.Column(db.String)
-    microlocation_id = db.Column(db.Integer, db.ForeignKey('microlocation.id'))
-    session_type_id = db.Column(db.Integer, db.ForeignKey('session_type.id'))
+    microlocation_id = db.Column(db.Integer, db.ForeignKey('microlocation.id', ondelete='CASCADE'))
+    session_type_id = db.Column(db.Integer, db.ForeignKey('session_type.id', ondelete='CASCADE'))
+    level = db.Column(db.String)
 
     slides = db.Column(db.String)
     video = db.Column(db.String)
@@ -40,11 +44,11 @@ class Session(db.Model):
     event_id = db.Column(
         db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
     state = db.Column(db.String, default="pending")
-    in_trash = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    trash_date = db.Column(db.DateTime)
+    deleted_at = db.Column(db.DateTime)
     submission_date = db.Column(db.DateTime)
     submission_modifier = db.Column(db.String)
+    state_email_sent = db.Column(db.Boolean, default=False)
 
     def __init__(self,
                  title=None,
@@ -57,7 +61,7 @@ class Session(db.Model):
                  track=None,
                  language=None,
                  microlocation=None,
-                 speakers=[],
+                 speakers=None,
                  event_id=None,
                  state="pending",
                  slides=None,
@@ -65,9 +69,14 @@ class Session(db.Model):
                  audio=None,
                  signup_url=None,
                  session_type=None,
+                 level=None,
                  created_at=None,
-                 in_trash=False,
-                 trash_date=None):
+                 state_email_sent=False,
+                 deleted_at=None):
+
+        if speakers is None:
+            speakers = []
+
         self.title = title
         self.subtitle = subtitle
         self.short_abstract = short_abstract
@@ -86,13 +95,29 @@ class Session(db.Model):
         self.audio = audio
         self.signup_url = signup_url
         self.session_type = session_type
+        self.level = level
         self.created_at = created_at
-        self.in_trash = in_trash
-        self.trash_date = trash_date
+        self.deleted_at = deleted_at
+        self.state_email_sent = state_email_sent
 
     @staticmethod
     def get_service_name():
         return 'session'
+
+    def get_tz_aware_time(self, time):
+        return pytz.timezone(self.timezone).localize(time)
+
+    @hybrid_property
+    def start_time_tz(self):
+        return self.get_tz_aware_time(self.start_time)
+
+    @hybrid_property
+    def end_time_tz(self):
+        return self.get_tz_aware_time(self.end_time)
+
+    @property
+    def timezone(self):
+        return app.models.event.Event.query.get(self.event_id).timezone
 
     @property
     def is_accepted(self):
@@ -114,7 +139,8 @@ class Session(db.Model):
             'speakers': [
                 {'id': speaker.id,
                  'name': speaker.name} for speaker in self.speakers
-            ],
+                ],
+            'level': self.level,
             'microlocation': self.microlocation.id
             if self.microlocation else None
         }

@@ -1,17 +1,16 @@
 from flask.ext.restplus import Namespace
 
 from app.models.microlocation import Microlocation as MicrolocationModel
-
-from .helpers.helpers import (
+from app.api.helpers import custom_fields as fields
+from app.api.helpers.helpers import (
     can_create,
     can_update,
     can_delete,
-    requires_auth
-)
-from .helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO, \
+    requires_auth,
+    replace_event_id)
+from app.api.helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO, \
     PAGE_PARAMS, POST_RESPONSES, PUT_RESPONSES, SERVICE_RESPONSES
-from .helpers.utils import Resource, ETAG_HEADER_DEFN
-from .helpers import custom_fields as fields
+from app.api.helpers.utils import Resource, ETAG_HEADER_DEFN
 
 api = Namespace('microlocations', description='Microlocations', path='/')
 
@@ -36,15 +35,17 @@ del MICROLOCATION_POST['id']
 class MicrolocationDAO(ServiceDAO):
     version_key = 'microlocations_ver'
 
+
 DAO = MicrolocationDAO(MicrolocationModel, MICROLOCATION_POST)
 
 
-@api.route('/events/<int:event_id>/microlocations/<int:microlocation_id>')
+@api.route('/events/<string:event_id>/microlocations/<int:microlocation_id>')
 @api.doc(responses=SERVICE_RESPONSES)
 class Microlocation(Resource):
     @api.doc('get_microlocation')
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(MICROLOCATION)
+    @replace_event_id
     def get(self, event_id, microlocation_id):
         """Fetch a microlocation given its id"""
         return DAO.get(event_id, microlocation_id)
@@ -53,6 +54,7 @@ class Microlocation(Resource):
     @can_delete(DAO)
     @api.doc('delete_microlocation')
     @api.marshal_with(MICROLOCATION)
+    @replace_event_id
     def delete(self, event_id, microlocation_id):
         """Delete a microlocation given its id"""
         return DAO.delete(event_id, microlocation_id)
@@ -62,16 +64,18 @@ class Microlocation(Resource):
     @api.doc('update_microlocation', responses=PUT_RESPONSES)
     @api.marshal_with(MICROLOCATION)
     @api.expect(MICROLOCATION_POST)
+    @replace_event_id
     def put(self, event_id, microlocation_id):
         """Update a microlocation given its id"""
         return DAO.update(event_id, microlocation_id, self.api.payload)
 
 
-@api.route('/events/<int:event_id>/microlocations')
+@api.route('/events/<string:event_id>/microlocations')
 class MicrolocationList(Resource):
     @api.doc('list_microlocations')
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_list_with(MICROLOCATION)
+    @replace_event_id
     def get(self, event_id):
         """List all microlocations"""
         return DAO.list(event_id)
@@ -81,6 +85,7 @@ class MicrolocationList(Resource):
     @api.doc('create_microlocation', responses=POST_RESPONSES)
     @api.marshal_with(MICROLOCATION)
     @api.expect(MICROLOCATION_POST)
+    @replace_event_id
     def post(self, event_id):
         """Create a microlocation"""
         return DAO.create(
@@ -90,11 +95,12 @@ class MicrolocationList(Resource):
         )
 
 
-@api.route('/events/<int:event_id>/microlocations/page')
+@api.route('/events/<string:event_id>/microlocations/page')
 class MicrolocationListPaginated(Resource, PaginatedResourceBase):
     @api.doc('list_microlocations_paginated', params=PAGE_PARAMS)
     @api.header(*ETAG_HEADER_DEFN)
     @api.marshal_with(MICROLOCATION_PAGINATED)
+    @replace_event_id
     def get(self, event_id):
         """List microlocations in a paginated manner"""
         args = self.parser.parse_args()

@@ -1,9 +1,10 @@
+import time
 import uuid
 from datetime import datetime
-import time
 
 from app.helpers.helpers import get_count
-from . import db
+from app.models import db
+
 
 def get_new_identifier():
     identifier = str(uuid.uuid4())
@@ -12,6 +13,7 @@ def get_new_identifier():
         return identifier
     else:
         return get_new_identifier()
+
 
 class EventInvoice(db.Model):
     """
@@ -28,7 +30,7 @@ class EventInvoice(db.Model):
     country = db.Column(db.String)
     zipcode = db.Column(db.String)
 
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'))
     event_id = db.Column(db.Integer, db.ForeignKey('events.id', ondelete='SET NULL'))
 
     created_at = db.Column(db.DateTime)
@@ -47,16 +49,21 @@ class EventInvoice(db.Model):
     event = db.relationship('Event', backref='invoices')
     user = db.relationship('User', backref='invoices')
 
+    discount_code_id = db.Column(db.Integer, db.ForeignKey('discount_codes.id', ondelete='SET NULL'),
+                                 nullable=True, default=None)
+    discount_code = db.relationship('DiscountCode', backref='event_invoices')
+
     def __init__(self,
                  amount=None,
                  address=None,
-                 city=city,
+                 city=None,
                  state=None,
                  country=None,
                  zipcode=None,
                  transaction_id=None,
                  paid_via=None,
                  user_id=None,
+                 discount_code_id=None,
                  event_id=None):
         self.identifier = get_new_identifier()
         self.amount = amount
@@ -64,11 +71,13 @@ class EventInvoice(db.Model):
         self.state = state
         self.country = country
         self.zipcode = zipcode
+        self.city = city
         self.user_id = user_id
         self.event_id = event_id
         self.transaction_id = transaction_id
         self.paid_via = paid_via
         self.created_at = datetime.utcnow()
+        self.discount_code_id = discount_code_id
         self.status = 'pending'
 
     def get_invoice_number(self):

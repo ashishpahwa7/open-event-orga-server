@@ -6,11 +6,11 @@ POST_EVENT_DATA = {
     "email": "event@gmail.com",
     "end_time": "2016-05-30T12:12:43",
     "timezone": "UTC",
-    "latitude": 0,
+    "latitude": 0.0,
     "location_name": "Berlin",
     "searchable_location_name": "Berlin",
     "logo": "",
-    "longitude": 0,
+    "longitude": 0.0,
     "name": "TestEvent",
     'event_url': "http://site.com",
     'background_image': "",
@@ -52,8 +52,8 @@ POST_SOCIAL_LINK_DATA = {
 
 POST_MICROLOCATION_DATA = {
     "floor": 1,
-    "latitude": 1,
-    "longitude": 1,
+    "latitude": 1.0,
+    "longitude": 1.0,
     "name": "TestMicrolocation",
     "room": "TestRoom"
 }
@@ -74,7 +74,8 @@ POST_SESSION_DATA = {
     "video": "http://example.com/video",
     "audio": "http://example.com/audio",
     "signup_url": "http://example.com/signup",
-    "session_type_id": None
+    "session_type_id": None,
+    "level": "TestSessionLevel"
 }
 
 POST_SESSION_TYPE_DATA = {
@@ -97,7 +98,12 @@ POST_SPEAKER_DATA = {
     "photo": "http://imgur.com/skds.png",
     "position": "TestSession",
     "twitter": "http://twitter.com/user",
-    "website": "http://website.com"
+    "website": "http://website.com",
+    "city": "TestCity",
+    "heard_from": "TestSource",
+    "speaking_experience": "TestExperience",
+    "sponsorship_required": "Yes",
+    "gender": "Male"
 }
 
 POST_SPONSOR_DATA = {
@@ -112,7 +118,8 @@ POST_SPONSOR_DATA = {
 POST_TRACK_DATA = {
     "description": "TestTrack",
     "name": "TestTrack",
-    "color": "red",
+    "color": "#caf034",
+    "font_color": "#000000",
     "track_image_url": "http://imgur.com/image.png",
     "location": "Some Street, Some City",
 }

@@ -1,31 +1,32 @@
 from datetime import datetime
 
 from app.helpers.data import save_to_db, DataManager
-from app.models.user import User, ORGANIZER
 from app.models.event import Event
-from app.models.session import Session
-from app.models.speaker import Speaker
-from app.models.sponsor import Sponsor
+from app.models.event_copyright import EventCopyright as Copyright
 from app.models.microlocation import Microlocation
+from app.models.session import Session
 from app.models.session_type import SessionType
 from app.models.social_link import SocialLink
+from app.models.speaker import Speaker
+from app.models.sponsor import Sponsor
 from app.models.track import Track
-from app.models.event_copyright import EventCopyright as Copyright
+from app.models.user import User, ORGANIZER
 
 
-def create_event(name='TestEvent', creator_email=None):
+def create_event(name='TestEvent', creator_email=None, **kwargs):
     """Creates Event and returns its `id`.
+    :param creator_email:
     :param name Name of Event
     """
-    copyright = Copyright(holder='copyright holder')
     event = Event(name=name,
                   start_time=datetime(2016, 4, 8, 12, 30, 45),
                   end_time=datetime(2016, 4, 9, 12, 30, 45),
-                  copyright=copyright)
-    if creator_email:
-        event.creator = User.query.filter_by(email=creator_email).first()
+                  **kwargs)
 
     save_to_db(event, 'Event saved')
+
+    copyright = Copyright(holder='copyright holder', event=event)
+    save_to_db(copyright, "Copyright saved")
 
     if creator_email:
         # Add creator as Organizer
@@ -47,12 +48,12 @@ def create_session(event_id, serial_no='', **kwargs):
     kwargs['speakers'] = [
         Speaker.query.get(i) for i in kwargs['speakers']
         if Speaker.query.get(i) is not None
-    ]
+        ]
     session = Session(
         title='TestSession%d_%s' % (event_id, serial_no),
         long_abstract='descp',
-        start_time=datetime(2014, 8, 4, 12, 30, 45),
-        end_time=datetime(2015, 9, 4, 12, 30, 45),
+        start_time=kwargs.get('start_time', datetime(2014, 8, 4, 12, 45, 00)),
+        end_time=datetime(2014, 8, 4, 13, 00, 00),
         event_id=event_id,
         **kwargs
     )
@@ -77,7 +78,7 @@ def create_services(event_id, serial_no=''):
         name=test_track,
         description='descp',
         event_id=event_id,
-        color='red'
+        color='#caf034'
     )
     session_type = SessionType(
         name=test_session_type,
@@ -87,7 +88,7 @@ def create_services(event_id, serial_no=''):
     session = Session(title=test_session,
                       long_abstract='descp',
                       start_time=datetime(2014, 8, 4, 12, 30, 45),
-                      end_time=datetime(2015, 9, 4, 12, 30, 45),
+                      end_time=datetime(2014, 8, 4, 13, 00, 00),
                       event_id=event_id,
                       session_type=session_type)
     speaker = Speaker(name=test_speaker,
@@ -116,11 +117,11 @@ def get_path(*args):
     """Returns API base path with passed arguments appended as path
     parameters.
 
-    '/api/v2/events' + '/arg1/arg2/arg3'
+    '/api/v1/events' + '/arg1/arg2/arg3'
 
-    e.g. create_url(2, 'tracks', 7) -> '/api/v2/events/2/tracks/7'
+    e.g. create_url(2, 'tracks', 7) -> '/api/v1/events/2/tracks/7'
     """
-    url = '/api/v2/events'
+    url = '/api/v1/events'
     if args:
         url += '/' + '/'.join(map(str, args))
     return url

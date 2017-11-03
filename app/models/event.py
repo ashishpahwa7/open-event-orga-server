@@ -1,18 +1,20 @@
-"""Copyright 2015 Rafal Kowalski"""
 import binascii
 import os
-
-from sqlalchemy import event
+from datetime import datetime
+import pytz
+from sqlalchemy.ext.hybrid import hybrid_property
 
 from flask.ext import login
+from sqlalchemy import event
+
 from app.helpers.date_formatter import DateFormatter
 from app.helpers.helpers import get_count
 from app.helpers.versioning import clean_up_string, clean_html
-from custom_forms import CustomForms, session_form_str, speaker_form_str
 from app.models.email_notifications import EmailNotification
 from app.models.user import ATTENDEE
+from custom_forms import CustomForms, session_form_str, speaker_form_str
 from version import Version
-from . import db
+from app.models import db
 
 
 def get_new_event_identifier(length=8):
@@ -30,7 +32,7 @@ class EventsUsers(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(
         db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'))
     editor = db.Column(db.Boolean)
     admin = db.Column(db.Boolean)
     user = db.relationship("User", backref="events_assocs")
@@ -40,7 +42,7 @@ class Event(db.Model):
     """Event object table"""
     __tablename__ = 'events'
     __versioned__ = {
-        'exclude': ['creator_id', 'schedule_published_on']
+        'exclude': ['schedule_published_on', 'created_at']
     }
     id = db.Column(db.Integer, primary_key=True)
     identifier = db.Column(db.String)
@@ -64,7 +66,6 @@ class Event(db.Model):
     show_map = db.Column(db.Integer)
     organizer_description = db.Column(db.String)
     has_session_speakers = db.Column(db.Boolean, default=False)
-    in_trash = db.Column(db.Boolean, default=False)
     track = db.relationship('Track', backref="event")
     microlocation = db.relationship('Microlocation', backref="event")
     session = db.relationship('Session', backref="event")
@@ -79,13 +80,11 @@ class Event(db.Model):
     topic = db.Column(db.String)
     sub_topic = db.Column(db.String)
     ticket_url = db.Column(db.String)
-    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    creator = db.relationship('User')
     db.UniqueConstraint('track.name')
     code_of_conduct = db.Column(db.String)
     schedule_published_on = db.Column(db.DateTime)
     ticket_include = db.Column(db.Boolean, default=False)
-    trash_date = db.Column(db.DateTime)
+    deleted_at = db.Column(db.DateTime)
     payment_country = db.Column(db.String)
     payment_currency = db.Column(db.String)
     paypal_email = db.Column(db.String)
@@ -98,6 +97,15 @@ class Event(db.Model):
     cheque_details = db.Column(db.String)
     bank_details = db.Column(db.String)
     onsite_details = db.Column(db.String)
+    created_at = db.Column(db.DateTime)
+    pentabarf_url = db.Column(db.String)
+    ical_url = db.Column(db.String)
+    xcal_url = db.Column(db.String)
+    sponsors_enabled = db.Column(db.Boolean, default=False)
+
+    discount_code_id = db.Column(db.Integer, db.ForeignKey('discount_codes.id', ondelete='SET NULL'),
+                                 nullable=True, default=None)
+    discount_code = db.relationship('DiscountCode', backref='events', foreign_keys=[discount_code_id])
 
     def __init__(self,
                  name=None,
@@ -123,16 +131,14 @@ class Event(db.Model):
                  topic=None,
                  sub_topic=None,
                  ticket_url=None,
-                 creator=None,
                  copyright=None,
                  code_of_conduct=None,
                  schedule_published_on=None,
-                 in_trash=False,
                  has_session_speakers=False,
                  show_map=1,
                  searchable_location_name=None,
                  ticket_include=None,
-                 trash_date=None,
+                 deleted_at=None,
                  payment_country=None,
                  payment_currency=None,
                  paypal_email=None,
@@ -145,6 +151,10 @@ class Event(db.Model):
                  pay_onsite=None,
                  cheque_details=None,
                  bank_details=None,
+                 pentabarf_url=None,
+                 ical_url=None,
+                 xcal_url=None,
+                 discount_code_id=None,
                  onsite_details=None):
 
         self.name = name
@@ -169,17 +179,15 @@ class Event(db.Model):
         self.privacy = privacy
         self.type = type
         self.topic = topic
+        self.copyright = copyright
         self.sub_topic = sub_topic
         self.ticket_url = ticket_url
-        self.creator = creator
-        self.copyright = copyright
         self.code_of_conduct = code_of_conduct
         self.schedule_published_on = schedule_published_on
-        self.in_trash = in_trash
         self.has_session_speakers = has_session_speakers
         self.searchable_location_name = searchable_location_name
         self.ticket_include = ticket_include
-        self.trash_date = trash_date
+        self.deleted_at = deleted_at
         self.payment_country = payment_country
         self.payment_currency = payment_currency
         self.paypal_email = paypal_email
@@ -192,7 +200,12 @@ class Event(db.Model):
         self.identifier = get_new_event_identifier()
         self.cheque_details = cheque_details
         self.bank_details = bank_details
+        self.pentabarf_url = pentabarf_url
+        self.ical_url = ical_url
+        self.xcal_url = xcal_url
         self.onsite_details = onsite_details
+        self.discount_code_id = discount_code_id
+        self.created_at = datetime.utcnow()
 
     def __repr__(self):
         return '<Event %r>' % self.name
@@ -209,17 +222,17 @@ class Event(db.Model):
         else:
             super(Event, self).__setattr__(name, value)
 
-    def notification_settings(self):
+    def notification_settings(self, user_id):
         try:
-            return EmailNotification.query.filter_by(user_id=login.current_user.id).filter_by(event_id=self.id).first()
+            return EmailNotification.query.filter_by(user_id=(login.current_user.id if not user_id else int(user_id))).filter_by(event_id=self.id).first()
         except:
             return None
 
-    def has_staff_access(self):
+    def has_staff_access(self, user_id):
         """does user have role other than attendee"""
         access = False
         for _ in self.roles:
-            if _.user_id == login.current_user.id:
+            if _.user_id == (login.current_user.id if not user_id else int(user_id)):
                 if _.role.name != ATTENDEE:
                     access = True
         return access
@@ -227,6 +240,21 @@ class Event(db.Model):
     def get_staff_roles(self):
         """returns only roles which are staff i.e. not attendee"""
         return [role for role in self.roles if role.role.name != ATTENDEE]
+
+    def get_tz_aware_time(self, time):
+        return pytz.timezone(self.timezone).localize(time)
+
+    @hybrid_property
+    def start_time_tz(self):
+        return self.get_tz_aware_time(self.start_time)
+
+    @hybrid_property
+    def end_time_tz(self):
+        return self.get_tz_aware_time(self.end_time)
+
+    @hybrid_property
+    def schedule_published_on_tz(self):
+        return self.get_tz_aware_time(self.schedule_published_on)
 
     @property
     def serialize(self):

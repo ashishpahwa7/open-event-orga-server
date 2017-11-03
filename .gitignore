@@ -16,8 +16,8 @@ app.db
 .idea/
 .bundle/
 
-# Static files at 'app/static/admin/lib'
-lib/
+# Static files at 'app/static/vendor'
+app/static/vendor
 node_modules
 
 # event export files
@@ -32,6 +32,10 @@ static/temp/*
 static/media/*
 !static/media/.gitkeep
 
+# uploads dir
+static/uploads/*
+!static/uploads/.gitkeep
+
 # redis
 redis-3.2.1/
 dump.rdb
@@ -39,3 +43,4 @@ dump.rdb
 /output.xml
 /log.html
 /selenium-screenshot-1.png
+jobs.sqlite

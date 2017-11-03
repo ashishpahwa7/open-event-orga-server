@@ -1,34 +1,38 @@
+from functools import wraps
+
+from flask import g
 from flask.ext.restplus import Namespace, marshal_with
 from flask_login import current_user
-from functools import wraps
-from flask import g
 
+from app.helpers.data_getter import DataGetter
 from app.models.speaker import Speaker as SpeakerModel
-
-from .helpers.helpers import model_custom_form, requires_auth
-from .helpers.helpers import (
+from app.api.helpers import custom_fields as fields
+from app.api.helpers.helpers import (
     can_create,
     can_update,
-    can_delete
-)
-from .helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO,\
+    can_delete,
+    replace_event_id)
+from app.api.helpers.helpers import model_custom_form, requires_auth
+from app.api.helpers.utils import PAGINATED_MODEL, PaginatedResourceBase, ServiceDAO, \
     PAGE_PARAMS, POST_RESPONSES, PUT_RESPONSES, SERVICE_RESPONSES
-from .helpers.utils import Resource, ETAG_HEADER_DEFN
-from .helpers import custom_fields as fields
-from app.helpers.data_getter import DataGetter
-
+from app.api.helpers.special_fields import SessionStateField
+from app.api.helpers.utils import Resource, ETAG_HEADER_DEFN
 
 api = Namespace('speakers', description='Speakers', path='/')
 
 SPEAKER_SESSION = api.model('SpeakerSession', {
     'id': fields.Integer(),
     'title': fields.String(),
+    'state': SessionStateField(),
 })
 
 SPEAKER = api.model('Speaker', {
     'id': fields.Integer(required=True),
     'name': fields.String(required=True),
     'photo': fields.Upload(),
+    'small': fields.Upload(),
+    'thumbnail': fields.Upload(),
+    'icon': fields.Upload(),
     'short_biography': fields.String(),
     'long_biography': fields.String(),
     'email': fields.Email(required=True),
@@ -43,6 +47,11 @@ SPEAKER = api.model('Speaker', {
     'position': fields.String(),
     'country': fields.String(required=True),
     'sessions': fields.List(fields.Nested(SPEAKER_SESSION)),
+    'city': fields.String(),
+    'heard_from': fields.String(),
+    'speaking_experience': fields.String(),
+    'sponsorship_required': fields.String(),
+    'gender': fields.String()
 })
 
 SPEAKER_PAGINATED = api.clone('SpeakerPaginated', PAGINATED_MODEL, {
@@ -82,6 +91,7 @@ class SpeakerDAO(ServiceDAO):
         return ServiceDAO.validate(
             self, data, model, check_required=check_required)
 
+
 DAO = SpeakerDAO(SpeakerModel, SPEAKER_POST)
 
 
@@ -93,6 +103,7 @@ def speakers_marshal_with(fields=None, fields_private=None):
     """
     Response marshalling for speakers. Doesn't update apidoc
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -107,7 +118,9 @@ def speakers_marshal_with(fields=None, fields_private=None):
                 model = fields_private if fields_private else SPEAKER_PRIVATE
             func2 = marshal_with(model)(func)
             return func2(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -115,9 +128,10 @@ def speakers_marshal_with(fields=None, fields_private=None):
 # API Resource
 # ############
 
-@api.route('/events/<int:event_id>/speakers/<int:speaker_id>')
+@api.route('/events/<string:event_id>/speakers/<int:speaker_id>')
 @api.doc(responses=SERVICE_RESPONSES)
 class Speaker(Resource):
+    @replace_event_id
     @api.doc('get_speaker', model=SPEAKER)
     @api.header(*ETAG_HEADER_DEFN)
     @speakers_marshal_with()
@@ -126,6 +140,7 @@ class Speaker(Resource):
         return DAO.get(event_id, speaker_id)
 
     @requires_auth
+    @replace_event_id
     @can_delete(DAO)
     @api.doc('delete_speaker', model=SPEAKER)
     @speakers_marshal_with()
@@ -134,6 +149,7 @@ class Speaker(Resource):
         return DAO.delete(event_id, speaker_id)
 
     @requires_auth
+    @replace_event_id
     @can_update(DAO)
     @api.doc('update_speaker', responses=PUT_RESPONSES, model=SPEAKER)
     @speakers_marshal_with()
@@ -143,9 +159,10 @@ class Speaker(Resource):
         return DAO.update(event_id, speaker_id, self.api.payload)
 
 
-@api.route('/events/<int:event_id>/speakers')
+@api.route('/events/<string:event_id>/speakers')
 class SpeakerList(Resource):
     @api.doc('list_speakers', model=[SPEAKER])
+    @replace_event_id
     @api.header(*ETAG_HEADER_DEFN)
     @speakers_marshal_with()
     def get(self, event_id):
@@ -153,6 +170,7 @@ class SpeakerList(Resource):
         return DAO.list(event_id)
 
     @requires_auth
+    @replace_event_id
     @can_create(DAO)
     @api.doc('create_speaker', responses=POST_RESPONSES, model=SPEAKER)
     @speakers_marshal_with()
@@ -166,9 +184,10 @@ class SpeakerList(Resource):
         )
 
 
-@api.route('/events/<int:event_id>/speakers/page')
+@api.route('/events/<string:event_id>/speakers/page')
 class SpeakerListPaginated(Resource, PaginatedResourceBase):
     @api.doc('list_speakers_paginated', params=PAGE_PARAMS)
+    @replace_event_id
     @api.doc(model=SPEAKER_PAGINATED)
     @api.header(*ETAG_HEADER_DEFN)
     @speakers_marshal_with(fields=SPEAKER_PAGINATED, fields_private=SPEAKER_PAGINATED_PRIVATE)

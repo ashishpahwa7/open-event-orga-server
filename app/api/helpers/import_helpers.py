@@ -1,31 +1,29 @@
-import zipfile
-import os
-import shutil
-import re
-import requests
-import traceback
 import json
+import os
+import re
+import shutil
+import traceback
+import zipfile
+
+import requests
+from flask import current_app as app
 from flask import request, g
 from werkzeug import secure_filename
 
-from flask import current_app as app
-from app.models.import_jobs import ImportJob
-from app.helpers.storage import UploadedFile, upload, UploadedMemory, \
-    UPLOAD_PATHS
 from app.helpers.data import save_to_db
 from app.helpers.helpers import update_state, send_email_after_import
+from app.helpers.storage import UploadedFile, upload, UploadedMemory, \
+    UPLOAD_PATHS
 from app.helpers.update_version import VersionUpdater
-
-from ..events import DAO as EventDAO, LinkDAO as SocialLinkDAO
-from ..microlocations import DAO as MicrolocationDAO
-from ..sessions import DAO as SessionDAO, TypeDAO as SessionTypeDAO
-from ..speakers import DAO as SpeakerDAO
-from ..sponsors import DAO as SponsorDAO
-from ..tracks import DAO as TrackDAO
-from .non_apis import CustomFormDAO
-
+from app.models.import_jobs import ImportJob
 from errors import BaseError, ServerError, NotFoundError
-
+from app.api.helpers.non_apis import CustomFormDAO
+from app.api.events import DAO as EventDAO, LinkDAO as SocialLinkDAO
+from app.api.microlocations import DAO as MicrolocationDAO
+from app.api.sessions import DAO as SessionDAO, TypeDAO as SessionTypeDAO
+from app.api.speakers import DAO as SpeakerDAO
+from app.api.sponsors import DAO as SponsorDAO
+from app.api.tracks import DAO as TrackDAO
 
 IMPORT_SERIES = [
     ('social_links', SocialLinkDAO),
@@ -77,33 +75,43 @@ def _available_path(folder, filename):
     return path
 
 
-def get_file_from_request(ext=[], folder='/static/temp/', name='file'):
+def get_file_from_request(ext=None, folder=None, name='file'):
     """
     Get file from a request, save it locally and return its path
     """
-    with app.app_context():
-        folder = app.config['BASE_DIR'] + folder
+    if ext is None:
+        ext = []
 
-    if 'file' not in request.files:
+    print("get_file_from_request() INVOKED. We have: request.files = %r" % request.files)
+
+    if name not in request.files:
         raise NotFoundError('File not found')
-    file = request.files['file']
-    if file.filename == '':
+    uploaded_file = request.files[name]
+    if uploaded_file.filename == '':
         raise NotFoundError('File not found')
-    if not _allowed_file(file.filename, ext):
+    if not _allowed_file(uploaded_file.filename, ext):
         raise NotFoundError('Invalid file type')
-    filename = secure_filename(file.filename)
-    path = _available_path(folder, filename)
-    file.save(path)
-    return path
+
+    if not folder:
+        folder = app.config['UPLOAD_FOLDER']
+    else:
+        with app.app_context():
+            folder = app.config['BASE_DIR'] + folder
+
+    filename = secure_filename(uploaded_file.filename)
+    uploaded_file.save(os.path.join(folder, filename))
+    return os.path.join(folder, filename)
 
 
-def make_error(file, er=None, id_=None):
+def make_error(uploaded_file, er=None, id_=None):
     if er is None:
         er = ServerError()
-    istr = 'File %s' % file
+    istr = 'File %s' % uploaded_file
     if id_ is not None:
         istr = '%s, ID %s' % (istr, id_)
     er.message = '%s, %s' % (istr, er.message)
+    if hasattr(er, 'code') and not er.code:
+        er.code = 500
     return er
 
 
@@ -251,12 +259,14 @@ def _fix_related_fields(srv, data, service_ids):
     return data
 
 
-def create_service_from_json(task_handle, data, srv, event_id, service_ids={}):
+def create_service_from_json(task_handle, data, srv, event_id, service_ids=None):
     """
     Given :data as json, create the service on server
     :service_ids are the mapping of ids of already created services.
         Used for mapping old ids to new
     """
+    if service_ids is None:
+        service_ids = {}
     global CUR_ID
     # sort by id
     data.sort(key=lambda k: k['id'])
@@ -284,7 +294,7 @@ def create_service_from_json(task_handle, data, srv, event_id, service_ids={}):
     return ids
 
 
-def import_event_json(task_handle, zip_path):
+def import_event_json(zip_path, task_handle):
     """
     Imports and creates event from json zip
     """
@@ -293,7 +303,7 @@ def import_event_json(task_handle, zip_path):
     update_state(task_handle, 'Started')
 
     with app.app_context():
-        path = app.config['BASE_DIR'] + '/static/temp/import_event'
+        path = app.config['BASE_DIR'] + '/static/uploads/import_event'
     # delete existing files
     if os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
@@ -316,8 +326,8 @@ def import_event_json(task_handle, zip_path):
         _upload_media_queue(srv, new_event)
     except BaseError as e:
         raise make_error('event', er=e)
-    except Exception:
-        raise make_error('event')
+    except Exception as e:
+        raise make_error('event', er=e)
     # create other services
     try:
         service_ids = {}

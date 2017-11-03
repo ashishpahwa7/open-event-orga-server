@@ -1,25 +1,14 @@
-"""Copyright 2015 Rafal Kowalski"""
 import json
-import os
 import re
-import requests
-import os.path
-import time
 from datetime import datetime, timedelta
-from flask import request, url_for, current_app
+
+import requests
 from itsdangerous import Serializer
 from sqlalchemy import func
 
-from app.helpers.flask_helpers import get_real_ip
-from app.settings import get_settings
-from ..models.message_settings import MessageSettings
-from ..models.track import Track
-from ..models.mail import INVITE_PAPERS, NEW_SESSION, USER_CONFIRM, NEXT_EVENT, \
-    USER_REGISTER, PASSWORD_RESET, SESSION_ACCEPT_REJECT, SESSION_SCHEDULE, EVENT_ROLE, EVENT_PUBLISH, Mail, \
-    AFTER_EVENT, USER_CHANGE_EMAIL, USER_REGISTER_WITH_PASSWORD, TICKET_PURCHASED, EVENT_EXPORTED, \
-    EVENT_EXPORT_FAIL, MAIL_TO_EXPIRED_ORDERS, MONTHLY_PAYMENT_FOLLOWUP_EMAIL, MONTHLY_PAYMENT_EMAIL, \
-    EVENT_IMPORTED, EVENT_IMPORT_FAIL
-from system_mails import MAILS
+from app.helpers.assets.images import get_image_file_name
+from app.helpers.flask_ext.helpers import get_real_ip
+from app.helpers.storage import UploadedFile
 from app.models.notifications import (
     # Prepended with `NOTIF_` to differentiate from mails
     EVENT_ROLE_INVITE as NOTIF_EVENT_ROLE,
@@ -32,11 +21,20 @@ from app.models.notifications import (
     TICKET_PURCHASED as NOTIF_TICKET_PURCHASED,
     EVENT_EXPORT_FAIL as NOTIF_EVENT_EXPORT_FAIL,
     EVENT_EXPORTED as NOTIF_EVENT_EXPORTED,
+    TICKET_PURCHASED_ORGANIZER as NOTIF_TICKET_PURCHASED_ORGANIZER,
+    TICKET_RESEND_ORGANIZER as NOTIF_TICKET_RESEND_ORGANIZER
 
 )
-
+from app.settings import get_settings
+from flask import request, url_for, current_app
+from system_mails import MAILS
 from system_notifications import NOTIFS
-from app.helpers.storage import UploadedFile
+from app.models.mail import INVITE_PAPERS, NEW_SESSION, USER_CONFIRM, NEXT_EVENT, \
+    USER_REGISTER, PASSWORD_RESET, SESSION_ACCEPT_REJECT, SESSION_SCHEDULE, EVENT_ROLE, EVENT_PUBLISH, Mail, \
+    AFTER_EVENT, USER_CHANGE_EMAIL, USER_REGISTER_WITH_PASSWORD, TICKET_PURCHASED, EVENT_EXPORTED, \
+    EVENT_EXPORT_FAIL, MAIL_TO_EXPIRED_ORDERS, MONTHLY_PAYMENT_FOLLOWUP_EMAIL, MONTHLY_PAYMENT_EMAIL, \
+    EVENT_IMPORTED, EVENT_IMPORT_FAIL, TICKET_PURCHASED_ORGANIZER, TICKET_CANCELLED
+from app.models.message_settings import MessageSettings
 
 
 def represents_int(string):
@@ -70,19 +68,6 @@ def get_event_id():
     return result.group(0).split('/')[1]
 
 
-def is_track_name_unique_in_event(form, event_id, *args):
-    """Check unique of track name in event"""
-    track_name = form.name.data
-    track_id = args[0] if len(args) else None
-    tracks = Track.query.filter_by(event_id=event_id, name=track_name)
-    if not track_id:
-        return tracks.count() == 0
-    else:
-        for track in tracks.all():
-            return str(track.id) == track_id
-        return True
-
-
 #########
 # Mails #
 #########
@@ -91,7 +76,6 @@ def send_email_invitation(email, event_name, link):
     """Send email for submit papers"""
     message_settings = MessageSettings.query.filter_by(action=INVITE_PAPERS).first()
     if not message_settings or message_settings.mail_status == 1:
-        print "sending mail"
         send_email(
             to=email,
             action=INVITE_PAPERS,
@@ -105,10 +89,9 @@ def send_email_invitation(email, event_name, link):
 
 
 def send_new_session_organizer(email, event_name, link):
-    """Send email after new sesions proposal"""
+    """Send email after new sessions proposal"""
     message_settings = MessageSettings.query.filter_by(action=NEW_SESSION).first()
     if not message_settings or message_settings.mail_status == 1:
-        print "sending mail"
         send_email(
             to=email,
             action=NEW_SESSION,
@@ -121,21 +104,24 @@ def send_new_session_organizer(email, event_name, link):
         )
 
 
-def send_session_accept_reject(email, session_name, acceptance, link):
+def send_session_accept_reject(email, session_name, acceptance, link, subject=None, message=None):
     """Send session accepted or rejected"""
     message_settings = MessageSettings.query.filter_by(action=SESSION_ACCEPT_REJECT).first()
     if not message_settings or message_settings.mail_status == 1:
-        print "sending mail"
+        action = SESSION_ACCEPT_REJECT
+        subject = subject if subject else MAILS[SESSION_ACCEPT_REJECT]['subject'].format(session_name=session_name,
+                                                                                         acceptance=acceptance),
+        message = message if message else MAILS[SESSION_ACCEPT_REJECT]['message'].format(
+            email=str(email),
+            session_name=str(session_name),
+            acceptance=str(acceptance),
+            link=link)
+
         send_email(
             to=email,
-            action=SESSION_ACCEPT_REJECT,
-            subject=MAILS[SESSION_ACCEPT_REJECT]['subject'].format(session_name=session_name, acceptance=acceptance),
-            html=MAILS[SESSION_ACCEPT_REJECT]['message'].format(
-                email=str(email),
-                session_name=str(session_name),
-                acceptance=str(acceptance),
-                link=link
-            )
+            action=action,
+            subject=subject,
+            html=message
         )
 
 
@@ -143,7 +129,6 @@ def send_schedule_change(email, session_name, link):
     """Send schedule change in session"""
     message_settings = MessageSettings.query.filter_by(action=SESSION_SCHEDULE).first()
     if not message_settings or message_settings.mail_status == 1:
-        print "sending mail"
         send_email(
             to=email,
             action=SESSION_SCHEDULE,
@@ -160,7 +145,6 @@ def send_next_event(email, event_name, link, up_coming_events):
     """Send next event"""
     message_settings = MessageSettings.query.filter_by(action=NEXT_EVENT).first()
     if not message_settings or message_settings.mail_status == 1:
-        print "sending mail"
         upcoming_event_html = "<ul>"
         for event in up_coming_events:
             upcoming_event_html += "<a href='%s'><li> %s </li></a>" % (url_for('events.details_view',
@@ -184,7 +168,6 @@ def send_after_event(email, event_name, upcoming_events):
     """Send after event mail"""
     message_settings = MessageSettings.query.filter_by(action=AFTER_EVENT).first()
     if not message_settings or message_settings.mail_status == 1:
-        print "sending mail"
         upcoming_event_html = "<ul>"
         for event in upcoming_events:
             upcoming_event_html += "<a href='%s'><li> %s </li></a>" % (url_for('events.details_view',
@@ -207,7 +190,6 @@ def send_event_publish(email, event_name, link):
     """Send email on publishing event"""
     message_settings = MessageSettings.query.filter_by(action=NEXT_EVENT).first()
     if not message_settings or message_settings.mail_status == 1:
-        print "sending mail"
         send_email(
             to=email,
             action=NEXT_EVENT,
@@ -225,7 +207,7 @@ def send_email_after_account_create(form):
     send_email(
         to=form['email'],
         action=USER_REGISTER,
-        subject=MAILS[USER_REGISTER]['subject'],
+        subject=MAILS[USER_REGISTER]['subject'].format(app_name=get_settings()['app_name']),
         html=MAILS[USER_REGISTER]['message'].format(email=form['email'])
     )
 
@@ -235,7 +217,7 @@ def send_email_after_account_create_with_password(form):
     send_email(
         to=form['email'],
         action=USER_REGISTER_WITH_PASSWORD,
-        subject=MAILS[USER_REGISTER_WITH_PASSWORD]['subject'],
+        subject=MAILS[USER_REGISTER_WITH_PASSWORD]['subject'].format(app_name=get_settings()['app_name']),
         html=MAILS[USER_REGISTER_WITH_PASSWORD]['message'].format(email=form['email'], password=form['password'])
     )
 
@@ -250,6 +232,7 @@ def send_email_confirmation(form, link):
             email=form['email'], link=link
         )
     )
+
 
 def send_email_when_changes_email(old_email, new_email):
     """account confirmation"""
@@ -268,7 +251,7 @@ def send_email_with_reset_password_hash(email, link):
     send_email(
         to=email,
         action=PASSWORD_RESET,
-        subject=MAILS[PASSWORD_RESET]['subject'],
+        subject=MAILS[PASSWORD_RESET]['subject'].format(app_name=get_settings()['app_name']),
         html=MAILS[PASSWORD_RESET]['message'].format(link=link)
     )
 
@@ -294,13 +277,39 @@ def send_email_for_event_role_invite(email, role, event, link):
         )
 
 
-def send_email_for_after_purchase(email, invoice_id, order_url):
+def send_email_for_after_purchase(email, invoice_id, order_url, event_name, event_organiser):
     """Send email with order invoice link after purchase"""
+    order_url = order_url + '?email=' + email
     send_email(
         to=email,
         action=TICKET_PURCHASED,
-        subject=MAILS[TICKET_PURCHASED]['subject'].format(invoice_id=invoice_id),
-        html=MAILS[TICKET_PURCHASED]['message'].format(order_url=order_url)
+        subject=MAILS[TICKET_PURCHASED]['subject'].format(invoice_id=invoice_id, event_name=event_name),
+        html=MAILS[TICKET_PURCHASED]['message'].format(order_url=order_url, event_name=event_name,
+                                                       event_organiser=event_organiser)
+    )
+
+
+def send_email_after_cancel_ticket(email, invoice_id, order_url, event_name, cancel_note):
+    """Send email with order invoice link after purchase"""
+    send_email(
+        to=email,
+        action=TICKET_CANCELLED,
+        subject=MAILS[TICKET_CANCELLED]['subject'].format(invoice_id=invoice_id, event_name=event_name),
+        html=MAILS[TICKET_CANCELLED]['message'].format(order_url=order_url, event_name=event_name,
+                                                       cancel_note=cancel_note)
+    )
+
+
+def send_email_for_after_purchase_organizers(email, buyer_email, invoice_id, order_url, event_name, event_organiser):
+    """Send email with order invoice link after purchase"""
+    send_email(
+        to=email,
+        action=TICKET_PURCHASED_ORGANIZER,
+        subject=MAILS[TICKET_PURCHASED_ORGANIZER]['subject'].format(invoice_id=invoice_id, event_name=event_name,
+                                                                    buyer_email=buyer_email),
+        html=MAILS[TICKET_PURCHASED_ORGANIZER]['message'].format(order_url=order_url, buyer_email=buyer_email,
+                                                                 event_name=event_name,
+                                                                 event_organiser=event_organiser)
     )
 
 
@@ -321,7 +330,8 @@ def send_email_for_monthly_fee_payment(email, event_name, date, amount, payment_
         action=MONTHLY_PAYMENT_EMAIL,
         subject=MAILS[MONTHLY_PAYMENT_EMAIL]['subject'].format(event_name=event_name, date=date),
         html=MAILS[MONTHLY_PAYMENT_EMAIL]['message'].format(event_name=event_name, date=date,
-                                                            payment_url=payment_url, amount=amount)
+                                                            payment_url=payment_url, amount=amount,
+                                                            app_name=get_settings()['app_name'])
     )
 
 
@@ -332,7 +342,8 @@ def send_followup_email_for_monthly_fee_payment(email, event_name, date, amount,
         action=MONTHLY_PAYMENT_FOLLOWUP_EMAIL,
         subject=MAILS[MONTHLY_PAYMENT_FOLLOWUP_EMAIL]['subject'].format(event_name=event_name, date=date),
         html=MAILS[MONTHLY_PAYMENT_FOLLOWUP_EMAIL]['message'].format(event_name=event_name, date=date,
-                                                                     payment_url=payment_url, amount=amount)
+                                                                     payment_url=payment_url, amount=amount,
+                                                                     app_name=get_settings()['app_name'])
     )
 
 
@@ -381,23 +392,53 @@ def send_email(to, action, subject, html):
     Sends email and records it in DB
     """
     if not string_empty(to):
-        key = get_settings()['sendgrid_key']
-        if not key and not current_app.config['TESTING']:
-            print 'Sendgrid key not defined'
-            return
+        email_service = get_settings()['email_service']
+        email_from_name = get_settings()['email_from_name']
+        if email_service == 'smtp':
+            email_from = email_from_name + '<' + get_settings()['email_from'] + '>'
+        else:
+            email_from = get_settings()['email_from']
+        payload = {
+            'to': to,
+            'from': email_from,
+            'subject': subject,
+            'html': html
+        }
 
         if not current_app.config['TESTING']:
-            headers = {
-                "Authorization": ("Bearer " + key)
-            }
-            payload = {
-                'to': to,
-                'from': 'open-event@googlegroups.com',
-                'subject': subject,
-                'html': html
-            }
-            from tasks import send_email_task
-            send_email_task.delay(payload, headers)
+            if email_service == 'smtp':
+                smtp_encryption = get_settings()['smtp_encryption']
+                if smtp_encryption == 'tls':
+                    smtp_encryption = 'required'
+                elif smtp_encryption == 'ssl':
+                    smtp_encryption = 'ssl'
+                elif smtp_encryption == 'tls_optional':
+                    smtp_encryption = 'optional'
+                else:
+                    smtp_encryption = 'none'
+
+                config = {
+                    'host': get_settings()['smtp_host'],
+                    'username': get_settings()['smtp_username'],
+                    'password': get_settings()['smtp_password'],
+                    'encryption': smtp_encryption,
+                    'port': get_settings()['smtp_port'],
+                }
+
+                from tasks import send_mail_via_smtp_task
+                send_mail_via_smtp_task.delay(config, payload)
+            else:
+                payload['fromname'] = email_from_name
+                key = get_settings()['sendgrid_key']
+                if not key and not current_app.config['TESTING']:
+                    print 'Sendgrid key not defined'
+                    return
+                headers = {
+                    "Authorization": ("Bearer " + key)
+                }
+                from tasks import send_email_task
+                send_email_task.delay(payload, headers)
+
         # record_mail(to, action, subject, html)
         mail = Mail(
             recipient=to, action=action, subject=subject,
@@ -450,6 +491,27 @@ def send_notif_for_after_purchase(user, invoice_id, order_url):
     )
 
 
+def send_notif_for_after_purchase_organizer(user, invoice_id, order_url, event_name, buyer_email):
+    """Send notification with order invoice link after purchase"""
+    send_notification(
+        user=user,
+        action=NOTIF_TICKET_PURCHASED_ORGANIZER,
+        title=NOTIFS[NOTIF_TICKET_PURCHASED_ORGANIZER]['title'].format(invoice_id=invoice_id, event_name=event_name,
+                                                                       buyer_email=buyer_email),
+        message=NOTIFS[NOTIF_TICKET_PURCHASED_ORGANIZER]['message'].format(order_url=order_url)
+    )
+
+
+def send_notif_for_resend(user, invoice_id, order_url, event_name, buyer_email):
+    """Send notification with order invoice link after purchase"""
+    send_notification(
+        user=user,
+        action=NOTIF_TICKET_RESEND_ORGANIZER,
+        title=NOTIFS[NOTIF_TICKET_RESEND_ORGANIZER]['title'].format(invoice_id=invoice_id, event_name=event_name, buyer_email=buyer_email),
+        message=NOTIFS[NOTIF_TICKET_RESEND_ORGANIZER]['message'].format(order_url=order_url)
+    )
+
+
 def send_notif_when_changes_email(user, old_email, new_email):
     send_notification(
         user=user,
@@ -481,7 +543,6 @@ def send_notif_event_role(user, role_name, event_name, accept_link, decline_link
 
 
 def send_notif_new_session_organizer(user, event_name, link):
-    print "sending"
     message_settings = MessageSettings.query.filter_by(action=NOTIF_NEW_SESSION).first()
     if not message_settings or message_settings.notif_status == 1:
         notif = NOTIFS[NOTIF_NEW_SESSION]
@@ -559,25 +620,8 @@ def ensure_social_link(website, link):
         return website + '/' + link
 
 
-def get_serializer(secret_key=None):
-    return Serializer('secret_key')
-
-
-def get_latest_heroku_release():
-    token = os.environ.get('API_TOKEN_HEROKU', '')
-    headers = {
-        "Accept": "application/vnd.heroku+json; version=3",
-        "Authorization": "Bearer " + token,
-        "Range": "version ..; max=1, order=desc"
-    }
-    response = requests.get(
-        "https://api.heroku.com/apps/%s/releases" % os.environ.get('HEROKU_APP_NAME', 'open-event'),
-        headers=headers
-    )
-    try:
-        return json.loads(response.text)[0]
-    except:
-        return []
+def get_serializer(secret_key='secret_key'):
+    return Serializer(secret_key)
 
 
 def get_commit_info(commit_number):
@@ -692,9 +736,9 @@ def update_state(task_handle, state, result=None):
         )
 
 
-def uploaded_file(extention='.png', file_content=None):
-    filename = str(time.time()) + extention
-    file_path = os.path.realpath('.') + '/static/temp/' + filename
+def uploaded_file(extension='.png', file_content=None):
+    filename = get_image_file_name() + extension
+    file_path = current_app.config.get('BASE_DIR') + '/static/uploads/' + filename
     file = open(file_path, "wb")
     file.write(file_content.split(",")[1].decode('base64'))
     file.close()

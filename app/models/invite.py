@@ -1,11 +1,11 @@
-from . import db
+from app.models import db
 
 
 class Invite(db.Model):
     """invite model class"""
     __tablename__ = 'invites'
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'))
     user = db.relationship("User", backref="invite")
     event_id = db.Column(
         db.Integer, db.ForeignKey('events.id', ondelete='CASCADE'))

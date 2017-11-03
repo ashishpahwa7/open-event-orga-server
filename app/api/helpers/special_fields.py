@@ -1,6 +1,5 @@
-from app.helpers.data_getter import DataGetter
-
 import custom_fields as fields
+from app.helpers.data_getter import DataGetter
 
 
 class EventTypeField(fields.ChoiceString):
@@ -74,5 +73,5 @@ class SessionStateField(fields.ChoiceString):
 
     def __init__(self, **kwargs):
         super(SessionStateField, self).__init__(
-            choice_list=['pending', 'accepted', 'rejected'],
+            choice_list=['pending', 'accepted', 'rejected', 'confirmed'],
             **kwargs)

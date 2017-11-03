@@ -1,20 +1,25 @@
-from flask.ext.restplus import abort
-from flask_admin import BaseView, expose
+import json
 
-from flask_restplus import marshal
-from app.api.events import EVENT
-from app.api.helpers.helpers import get_paginated_list, get_object_list
-from app.helpers.flask_helpers import deslugify
-from app.helpers.helpers import get_date_range
-from app.helpers.data import DataGetter
-from app.models.event import Event
+import requests
+from flask import Blueprint
+from flask import render_template
 from flask import request, redirect, url_for, jsonify
+from flask.ext.restplus import abort
+from flask_restplus import marshal
+from requests import ConnectionError
 
+from app.api.events import EVENT, EVENT_PAGINATED
+from app.api.helpers.helpers import get_paginated_list, get_object_list
+from app.helpers.data import DataGetter
+from app.helpers.flask_ext.helpers import deslugify
+from app.helpers.helpers import get_date_range
+from app.helpers.static import EVENT_TOPICS
+from app.models.event import Event
 
 RESULTS_PER_PAGE = 10
 
-def get_paginated(**kwargs):
 
+def get_paginated(**kwargs):
     current_page = request.args.get('page')
     if current_page:
         current_page = int(current_page) - 1
@@ -36,119 +41,115 @@ def get_paginated(**kwargs):
             'results': []
         }
 
+
 def erase_from_dict(d, k):
     if isinstance(d, dict):
         if k in d.keys():
             d.pop(k)
 
-class ExploreView(BaseView):
 
-    @expose('/', methods=('GET', 'POST'))
-    def explore_base(self):
-        return redirect(url_for('admin.browse_view'))
-
-    @expose('/autocomplete/locations.json', methods=('GET', 'POST'))
-    def locations_autocomplete(self):
-        locations = DataGetter.get_locations_of_events()
-        return jsonify([{'value': location, 'type': 'location'} for location in locations])
-
-    @expose('/autocomplete/categories.json', methods=('GET', 'POST'))
-    def categories_autocomplete(self):
-        categories = CATEGORIES.keys()
-        return jsonify([{'value': category, 'type': 'category'} for category in categories])
-
-    @expose('/autocomplete/events/<location_slug>.json', methods=('GET', 'POST'))
-    def events_autocomplete(self, location_slug):
-        location = deslugify(location_slug)
-        results = get_object_list(Event, __event_search_location=location)
-        results = marshal(results, EVENT)
-        return jsonify([{'value': result['name'], 'type': 'event_name'} for result in results])
-
-    @expose('/<location>/events/', methods=('GET', 'POST'))
-    def explore_view(self, location):
-        placeholder_images = DataGetter.get_event_default_images()
-        custom_placeholder = DataGetter.get_custom_placeholders()
-        location = deslugify(location)
-        current_page = request.args.get('page')
-        query = request.args.get('query', '')
-        if not current_page:
-            current_page = 1
-        else:
-            current_page = int(current_page)
-
-        filtering = {'privacy': 'public', 'state': 'Published'}
-        start, end = None, None
-        word = request.args.get('query', None)
-        event_type = request.args.get('type', None)
-        day_filter = request.args.get('period', None)
-        sub_category = request.args.get('sub-category', None)
-        category = request.args.get('category', None)
-        print location
-        if day_filter:
-            start, end = get_date_range(day_filter)
-        if location:
-            filtering['__event_search_location'] = location
-        if word:
-            filtering['__event_contains'] = word
-        if category:
-            filtering['topic'] = category
-        if sub_category:
-            filtering['sub_topic'] = sub_category
-        if event_type:
-            filtering['type'] = event_type
-        if start:
-            filtering['__event_start_time_gt'] = start
-        if end:
-            filtering['__event_end_time_lt'] = end
-        filters = request.args.items()
-        erase_from_dict(filters, 'page')
-        results = get_paginated(**filtering)
-
-        return self.render('/gentelella/guest/search/results.html',
-                           results=results,
-                           location=location,
-                           filters=filters,
-                           current_page=current_page,
-                           placeholder_images=placeholder_images,
-                           custom_placeholder=custom_placeholder,
-                           categories=CATEGORIES, query=query)
+def clean_dict(d):
+    d = dict(d)
+    return dict((k, v) for k, v in d.iteritems() if v)
 
 
-CATEGORIES = {'Auto, Boat & Air': ['Air', 'Auto', 'Boat', 'Motorcycle/ATV', 'Other'],
-              'Business & Professional':
-                  ['Career', 'Design', 'Educators', 'Environment &amp; Sustainability', 'Finance', 'Media',
-                   'Non Profit &amp; NGOs', 'Other', 'Real Estate', 'Sales &amp; Marketing',
-                   'Startups &amp; Small Business'],
-              'Charity & Causes': ['Animal Welfare', 'Disaster Relief', 'Education', 'Environment', 'Healthcare',
-                                   'Human Rights', 'International Aid', 'Other', 'Poverty'],
-              'Community & Culture': ['City/Town', 'County', 'Heritage', 'LGBT', 'Language', 'Medieval', 'Nationality',
-                                      'Other', 'Renaissance', 'State'],
-              'Family & Education': ['Alumni', 'Baby', 'Children &amp; Youth', 'Education', 'Other', 'Parenting',
-                                     'Parents Association', 'Reunion'],
-              'Fashion & Beauty': ['Accessories', 'Beauty', 'Bridal', 'Fashion', 'Other'],
-              'Film, Media & Entertainment': ['Adult', 'Anime', 'Comedy', 'Comics', 'Film', 'Gaming', 'Other', 'TV'],
-              'Food & Drink': ["Beer", "Food", "Other", "Spirits", "Wine"],
-              'Government & Politics': ["County/Municipal Government ", "Democratic Party", "Federal Government",
-                                        "Non-partisan", "Other", "Other Party", "Republican Party", "State Government"],
-              'Health & Wellness': ["Medical", "Mental health", "Other", "Personal health", "Spa", "Yoga"],
-              'Hobbies & Special Interest': ["Adult", "Anime/Comics", "Books", "DIY", "Drawing & Painting",
-                                             "Gaming", "Knitting", "Other", "Photography"],
-              'Home & Lifestyle': ["Dating", "Home & Garden", "Other", "Pets & Animals"],
-              'Music': ["Alternative", "Blues & Jazz", "Classical", "Country", "Cultural", "EDM / Electronic",
-                        "Folk", "Hip Hop / Rap", "Indie", "Latin", "Metal", "Opera", "Other", "Pop", "R&B", "Reggae",
-                        "Religious/Spiritual", "Rock", "Top 40"],
-              'Other': [],
-              'Performing & Visual Arts': ["Ballet", "Comedy", "Craft", "Dance", "Fine Art", "Literary Arts", "Musical",
-                                           "Opera", "Orchestra", "Other", "Theatre"],
-              'Religion & Spirituality': ["Buddhism", "Christianity", "Eastern Religion", "Islam", "Judaism",
-                                          "Mormonism", "Mysticism and Occult", "New Age", "Other", "Sikhism"],
-              'Science & Technology': ["Biotech", "High Tech", "Medicine", "Mobile", "Other", "Robotics",
-                                       "Science", "Social Media"],
-              'Seasonal & Holiday': ["Channukah", "Christmas", "Easter", "Fall events", "Halloween/Haunt",
-                                     "Independence Day", "New Years Eve", "Other", "St Patricks Day", "Thanksgiving"],
-              'Sports & Fitness': ["Baseball", "Basketball", "Cycling", "Exercise", "Fighting & Martial Arts",
-                                   "Football", "Golf", "Hockey", "Motorsports", "Mountain Biking", "Obstacles",
-                                   "Other", "Rugby", "Running", "Snow Sports", "Soccer", "Swimming & Water Sports",
-                                   "Tennis", "Volleyball", "Walking", "Yoga"],
-              'Travel & Outdoor': ["Canoeing", "Climbing", "Hiking", "Kayaking", "Other", "Rafting", "Travel"]
-              }
+def get_coordinates(location_name):
+
+    location = {
+        'lat': 0.0,
+        'lng': 0.0
+    }
+
+    url = 'https://maps.googleapis.com/maps/api/geocode/json'
+    params = {'address': location_name}
+    response = dict()
+
+    try:
+        response = requests.get(url, params).json()
+    except ConnectionError:
+        response['status'] = u'Error'
+
+    if response['status'] == u'OK':
+        location = response['results'][0]['geometry']['location']
+
+    return location
+
+
+explore = Blueprint('explore', __name__, url_prefix='/explore')
+
+
+@explore.route('/', methods=('GET', 'POST'))
+def explore_base():
+    return redirect(url_for('admin.browse_view'))
+
+
+@explore.route('/autocomplete/locations.json', methods=('GET', 'POST'))
+def locations_autocomplete():
+    locations = DataGetter.get_locations_of_events()
+    return jsonify([{'value': location, 'type': 'location'} for location in locations])
+
+
+@explore.route('/autocomplete/categories.json', methods=('GET', 'POST'))
+def categories_autocomplete():
+    categories = EVENT_TOPICS.keys()
+    return jsonify([{'value': category, 'type': 'category'} for category in categories])
+
+
+@explore.route('/autocomplete/events/<location_slug>.json', methods=('GET', 'POST'))
+def events_autocomplete(location_slug):
+    location = deslugify(location_slug)
+    results = get_object_list(Event, __event_search_location=location)
+    results = marshal(results, EVENT)
+    return jsonify([{'value': result['name'], 'type': 'event_name'} for result in results])
+
+
+@explore.route('/<location>/events/')
+def explore_view(location):
+    placeholder_images = DataGetter.get_event_default_images()
+    custom_placeholder = DataGetter.get_custom_placeholders()
+    location = deslugify(location)
+    query = request.args.get('query', '')
+
+    filtering = {'privacy': 'public', 'state': 'Published'}
+    start, end = None, None
+    word = request.args.get('query', None)
+    event_type = request.args.get('type', None)
+    day_filter = request.args.get('period', None)
+    sub_category = request.args.get('sub-category', None)
+    category = request.args.get('category', None)
+
+    if day_filter:
+        start, end = get_date_range(day_filter)
+    if location and location != 'world':
+        filtering['__event_search_location'] = location
+    if word:
+        filtering['__event_contains'] = word
+    if category:
+        filtering['topic'] = category
+    if sub_category:
+        filtering['sub_topic'] = sub_category
+    if event_type:
+        filtering['type'] = event_type
+    if start:
+        filtering['__event_start_time_gt'] = start
+    if end:
+        filtering['__event_end_time_lt'] = end
+
+    results = marshal(get_paginated(**filtering), EVENT_PAGINATED)
+    filters = clean_dict(request.args.items())
+
+    custom_placeholder_serializable = {}
+    for custom_placeholder_item in custom_placeholder:
+        custom_placeholder_serializable[custom_placeholder_item.name] = custom_placeholder_item.thumbnail
+
+    return render_template('gentelella/guest/explore/results.html',
+                           results=json.dumps(results['results']),
+                           location=location if location != 'world' else '',
+                           position=json.dumps(get_coordinates(location)),
+                           count=results['count'],
+                           query_args=json.dumps(filters),
+                           placeholder_images=json.dumps(placeholder_images),
+                           custom_placeholder=json.dumps(custom_placeholder_serializable),
+                           categories=EVENT_TOPICS,
+                           results_per_page=RESULTS_PER_PAGE,
+                           query=query)

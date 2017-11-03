@@ -1,11 +1,9 @@
 import itertools
+import re
+import unicodedata
 
 import bleach
 import diff_match_patch
-import re
-
-import unicodedata
-
 from bleach.callbacks import target_blank, nofollow
 
 
@@ -24,6 +22,7 @@ def clean_up_string(target_string):
         else:
             return remove_line_breaks(target_string).strip()
     return target_string
+
 
 def clean_html(html):
     tags = [
@@ -49,8 +48,10 @@ def clean_html(html):
     cleaned = bleach.clean(html, tags=tags, attributes=attrs, styles=styles, strip=True)
     return bleach.linkify(cleaned, callbacks=[nofollow, target_blank], parse_email=True)
 
+
 def strip_tags(html):
     return bleach.clean(html, tags=[], attributes={}, styles=[], strip=True)
+
 
 def side_by_side_diff(old_text, new_text):
     """
@@ -113,8 +114,8 @@ def side_by_side_diff(old_text, new_text):
             if change_type == 0:
                 ls[-1] = ls[-1] or ''
                 rs[-1] = rs[-1] or ''
-                ls[-1] = ls[-1] + line
-                rs[-1] = rs[-1] + line
+                ls[-1] += line
+                rs[-1] += line
             elif change_type == 1:
                 rs[-1] = rs[-1] or ''
                 rs[-1] += '<ins>%s</ins>' % line if line else ''

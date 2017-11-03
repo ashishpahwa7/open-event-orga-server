@@ -1,26 +1,29 @@
 # -*- coding: utf-8 -*-
-
-import unittest
+"""
+Tests for core JSON import/export
+"""
 import json
 import logging
-import shutil
-import zipfile
-import time
 import os
+import shutil
+import time
+import unittest
+import zipfile
 from StringIO import StringIO
 
-from tests.unittests.setup_database import Setup
-from tests.unittests.utils import OpenEventTestCase
-from tests.unittests.api.utils import create_event, get_path, create_services,\
+from app import current_app as app
+from tests.unittests.api.utils import create_event, get_path, create_services, \
     create_session, save_to_db, Speaker
 from tests.unittests.auth_helper import register
-from app import current_app as app
+from tests.unittests.setup_database import Setup
+from tests.unittests.utils import OpenEventTestCase
 
 
 class ImportExportBase(OpenEventTestCase):
     """
     Helper functions to test import/export
     """
+
     def _upload(self, data, url, filename='anything'):
         return self.app.post(
             url,
@@ -41,7 +44,9 @@ class ImportExportBase(OpenEventTestCase):
             headers={'content-type': 'application/json'}
         )
 
-    def _do_successful_export(self, event_id, config={'image': True}):
+    def _do_successful_export(self, event_id, config=None):
+        if config is None:
+            config = {'image': True}
         path = get_path(event_id, 'export', 'json')
         resp = self._post(path, config)
         self.assertEqual(resp.status_code, 200)
@@ -63,16 +68,18 @@ class ImportExportBase(OpenEventTestCase):
         self.assertEqual(resp.status_code, 200)
         return resp
 
-    def _create_set(self, event_id=1, config={'image': True}):
+    def _create_set(self, event_id=1, config=None):
         """
-        exports and extracts in static/temp/test_event_import
+        exports and extracts in static/uploads/test_event_import
         """
         # export
+        if config is None:
+            config = {'image': True}
         resp = self._do_successful_export(event_id, config)
         zip_file = StringIO()
         zip_file.write(resp.data)
         # extract
-        path = 'static/temp/test_event_import'
+        path = 'static/uploads/test_event_import'
         if os.path.isdir(path):
             shutil.rmtree(path, ignore_errors=True)
         with zipfile.ZipFile(zip_file) as z:
@@ -83,6 +90,7 @@ class TestEventExport(ImportExportBase):
     """
     Test export of event
     """
+
     def setUp(self):
         self.app = Setup.create_app()
         with app.test_request_context():
@@ -125,14 +133,12 @@ class TestEventExport(ImportExportBase):
         resp = self._put(get_path(1), {'organizer_name': 'SandraMüllrick'})
         # export and unzip files
         self._create_set()
-        dr = 'static/temp/test_event_import'
+        dr = 'static/uploads/test_event_import'
         data = open(dr + '/event', 'r').read()
         self.assertIn('images/logo', data)
         # test unicode in file
         self.assertIn('ü', data)
         self.assertNotIn('\u', data)  # unicode escape
-        # test no ID of creator
-        self.assertEqual(json.loads(data)['creator'].get('id'), None)
         obj = json.loads(data)
         logo_data = open(dr + obj['logo'], 'r').read()
         self.assertTrue(len(logo_data) > 10)
@@ -148,7 +154,7 @@ class TestEventExport(ImportExportBase):
         resp = self._put(get_path(1), {'logo': 'https://placehold.it/350x150'})
         self.assertIn('placehold', resp.data, resp.data)
         self._create_set(1, {})
-        dr = 'static/temp/test_event_import'
+        dr = 'static/uploads/test_event_import'
         data = open(dr + '/event', 'r').read()
         obj = json.loads(data)
         self.assertIn('placehold', obj['logo'])
@@ -160,7 +166,7 @@ class TestEventExport(ImportExportBase):
         Tests order of export of fields in export files
         """
         self._create_set()
-        dr = 'static/temp/test_event_import'
+        dr = 'static/uploads/test_event_import'
         # event
         data = open(dr + '/event', 'r').read()
         self.assertTrue(data.find('id') < data.find('background_image'))
@@ -180,6 +186,7 @@ class TestEventImport(ImportExportBase):
     """
     Test import of event
     """
+
     def setUp(self):
         self.app = Setup.create_app()
         with app.test_request_context():
@@ -221,8 +228,10 @@ class TestEventImport(ImportExportBase):
         # No errors generally means everything went fine
         # The method will crash and return 500 in case of any problem
 
-    def _test_import_error(self, checks=[]):
+    def _test_import_error(self, checks=None):
         # first export
+        if checks is None:
+            checks = []
         resp = self._do_successful_export(1)
         file = resp.data
         # import
@@ -277,6 +286,7 @@ class TestImportOTS(ImportExportBase):
     """
     Tests import of OTS sample
     """
+
     def setUp(self):
         self.app = Setup.create_app()
         with app.test_request_context():
